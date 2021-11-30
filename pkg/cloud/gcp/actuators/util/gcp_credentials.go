@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -35,15 +35,15 @@ const (
 // This expects the https://github.com/openshift/cloud-credential-operator to make a secret
 // with a serviceAccount JSON Key content available. E.g:
 //
-//apiVersion: v1
-//kind: Secret
-//metadata:
+// apiVersion: v1
+// kind: Secret
+// metadata:
 //  name: gcp-sa
 //  namespace: openshift-machine-api
-//type: Opaque
-//data:
+// type: Opaque
+// data:
 //  serviceAccountJSON: base64 encoded content of the file
-func GetCredentialsSecret(coreClient controllerclient.Client, namespace string, spec v1beta1.GCPMachineProviderSpec) (string, error) {
+func GetCredentialsSecret(coreClient controllerclient.Client, namespace string, spec machinev1.GCPMachineProviderSpec) (string, error) {
 	if spec.CredentialsSecret == nil {
 		return "", nil
 	}

@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	gcpv1beta1 "github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
-	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	compute "google.golang.org/api/compute/v1"
 	googleapi "google.golang.org/api/googleapi"
 	corev1 "k8s.io/api/core/v1"
@@ -21,8 +20,8 @@ func TestCreate(t *testing.T) {
 	cases := []struct {
 		name                string
 		labels              map[string]string
-		providerSpec        *gcpv1beta1.GCPMachineProviderSpec
-		expectedCondition   *gcpv1beta1.GCPMachineProviderCondition
+		providerSpec        *machinev1.GCPMachineProviderSpec
+		expectedCondition   *machinev1.GCPMachineProviderCondition
 		secret              *corev1.Secret
 		mockInstancesInsert func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
 		validateInstance    func(t *testing.T, instance *compute.Instance)
@@ -30,8 +29,8 @@ func TestCreate(t *testing.T) {
 	}{
 		{
 			name: "Successfully create machine",
-			expectedCondition: &gcpv1beta1.GCPMachineProviderCondition{
-				Type:    gcpv1beta1.MachineCreated,
+			expectedCondition: &machinev1.GCPMachineProviderCondition{
+				Type:    machinev1.MachineCreated,
 				Status:  corev1.ConditionTrue,
 				Reason:  machineCreationSucceedReason,
 				Message: machineCreationSucceedMessage,
@@ -40,7 +39,7 @@ func TestCreate(t *testing.T) {
 		},
 		{
 			name: "Fail on invalid target pools",
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				TargetPools: []string{""},
 			},
 			expectedError: errors.New("failed validating machine provider spec: all target pools must have valid name"),
@@ -48,13 +47,13 @@ func TestCreate(t *testing.T) {
 		{
 			name: "Fail on invalid missing machine label",
 			labels: map[string]string{
-				machinev1beta1.MachineClusterIDLabel: "",
+				machinev1.MachineClusterIDLabel: "",
 			},
 			expectedError: errors.New("failed validating machine provider spec: machine is missing \"machine.openshift.io/cluster-api-cluster\" label"),
 		},
 		{
 			name: "Fail on invalid user data secret",
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				UserDataSecret: &corev1.LocalObjectReference{
 					Name: "notvalid",
 				},
@@ -72,8 +71,8 @@ func TestCreate(t *testing.T) {
 		{
 			name:          "Fail on compute service error",
 			expectedError: errors.New("failed to create instance via compute service: fail"),
-			expectedCondition: &gcpv1beta1.GCPMachineProviderCondition{
-				Type:    gcpv1beta1.MachineCreated,
+			expectedCondition: &machinev1.GCPMachineProviderCondition{
+				Type:    machinev1.MachineCreated,
 				Status:  corev1.ConditionFalse,
 				Reason:  machineCreationFailedReason,
 				Message: "fail",
@@ -85,8 +84,8 @@ func TestCreate(t *testing.T) {
 		{
 			name:          "Fail on google api error",
 			expectedError: machinecontroller.InvalidMachineConfiguration("error launching instance: %v", "googleapi: Error 400: error"),
-			expectedCondition: &gcpv1beta1.GCPMachineProviderCondition{
-				Type:    gcpv1beta1.MachineCreated,
+			expectedCondition: &machinev1.GCPMachineProviderCondition{
+				Type:    machinev1.MachineCreated,
 				Status:  corev1.ConditionFalse,
 				Reason:  machineCreationFailedReason,
 				Message: "googleapi: Error 400: error",
@@ -97,10 +96,10 @@ func TestCreate(t *testing.T) {
 		},
 		{
 			name: "Use projectID from NetworkInterface if set",
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				ProjectID: "project",
 				Region:    "test-region",
-				NetworkInterfaces: []*gcpv1beta1.GCPNetworkInterface{
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
 					{
 						ProjectID:  "network-project",
 						Network:    "test-network",
@@ -124,14 +123,14 @@ func TestCreate(t *testing.T) {
 		},
 		{
 			name: "guestAccelerators are correctly passed to the api",
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				Region:      "test-region",
 				Zone:        "test-zone",
 				MachineType: "n1-test-machineType",
-				GuestAccelerators: []*gcpv1beta1.GCPAcceleratorConfig{
+				GPUs: []machinev1.GCPGPUConfig{
 					{
-						AcceleratorType:  "nvidia-tesla-v100",
-						AcceleratorCount: 2,
+						Type:  "nvidia-tesla-v100",
+						Count: 2,
 					},
 				},
 			},
@@ -151,10 +150,10 @@ func TestCreate(t *testing.T) {
 		},
 		{
 			name: "Use projectID from ProviderSpec if not set in the NetworkInterface",
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				ProjectID: "project",
 				Region:    "test-region",
-				NetworkInterfaces: []*gcpv1beta1.GCPNetworkInterface{
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
 					{
 						Network:    "test-network",
 						Subnetwork: "test-subnetwork",
@@ -177,13 +176,13 @@ func TestCreate(t *testing.T) {
 		},
 		{
 			name: "Set disk encryption correctly when EncryptionKey is provided (with projectID)",
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				ProjectID: "project",
 				Region:    "test-region",
-				Disks: []*gcpv1beta1.GCPDisk{
+				Disks: []*machinev1.GCPDisk{
 					{
-						EncryptionKey: &gcpv1beta1.GCPEncryptionKeyReference{
-							KMSKey: &gcpv1beta1.GCPKMSKeyReference{
+						EncryptionKey: &machinev1.GCPEncryptionKeyReference{
+							KMSKey: &machinev1.GCPKMSKeyReference{
 								Name:      "kms-key-name",
 								KeyRing:   "kms-key-ring",
 								ProjectID: "kms-project",
@@ -214,13 +213,13 @@ func TestCreate(t *testing.T) {
 		},
 		{
 			name: "Set disk encryption correctly when EncryptionKey is provided (without projectID)",
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				ProjectID: "project",
 				Region:    "test-region",
-				Disks: []*gcpv1beta1.GCPDisk{
+				Disks: []*machinev1.GCPDisk{
 					{
-						EncryptionKey: &gcpv1beta1.GCPEncryptionKeyReference{
-							KMSKey: &gcpv1beta1.GCPKMSKeyReference{
+						EncryptionKey: &machinev1.GCPEncryptionKeyReference{
+							KMSKey: &machinev1.GCPKMSKeyReference{
 								Name:     "kms-key",
 								KeyRing:  "kms-ring",
 								Location: "centralus-1",
@@ -252,9 +251,9 @@ func TestCreate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			receivedInstance, mockComputeService := computeservice.NewComputeServiceMock()
-			providerSpec := &gcpv1beta1.GCPMachineProviderSpec{}
+			providerSpec := &machinev1.GCPMachineProviderSpec{}
 			labels := map[string]string{
-				machinev1beta1.MachineClusterIDLabel: "CLUSTERID",
+				machinev1.MachineClusterIDLabel: "CLUSTERID",
 			}
 
 			if tc.providerSpec != nil {
@@ -266,7 +265,7 @@ func TestCreate(t *testing.T) {
 			}
 
 			machineScope := machineScope{
-				machine: &machinev1beta1.Machine{
+				machine: &machinev1.Machine{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "",
 						Namespace: "",
@@ -275,7 +274,7 @@ func TestCreate(t *testing.T) {
 				},
 				coreClient:     controllerfake.NewFakeClient(),
 				providerSpec:   providerSpec,
-				providerStatus: &gcpv1beta1.GCPMachineProviderStatus{},
+				providerStatus: &machinev1.GCPMachineProviderStatus{},
 				computeService: mockComputeService,
 				projectID:      providerSpec.ProjectID,
 			}
@@ -334,19 +333,19 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 	projecID := "testProject"
 	instanceName := "testInstance"
 	machineScope := machineScope{
-		machine: &machinev1beta1.Machine{
+		machine: &machinev1.Machine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      instanceName,
 				Namespace: "",
 			},
 		},
 		coreClient: controllerfake.NewFakeClient(),
-		providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+		providerSpec: &machinev1.GCPMachineProviderSpec{
 			Zone: zone,
 		},
 		projectID:      projecID,
 		providerID:     fmt.Sprintf("gce://%s/%s/%s", projecID, zone, instanceName),
-		providerStatus: &gcpv1beta1.GCPMachineProviderStatus{},
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
 		computeService: mockComputeService,
 	}
 
@@ -386,18 +385,18 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 func TestExists(t *testing.T) {
 	_, mockComputeService := computeservice.NewComputeServiceMock()
 	machineScope := machineScope{
-		machine: &machinev1beta1.Machine{
+		machine: &machinev1.Machine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "",
 				Namespace: "",
 				Labels: map[string]string{
-					machinev1beta1.MachineClusterIDLabel: "CLUSTERID",
+					machinev1.MachineClusterIDLabel: "CLUSTERID",
 				},
 			},
 		},
 		coreClient:     controllerfake.NewFakeClient(),
-		providerSpec:   &gcpv1beta1.GCPMachineProviderSpec{},
-		providerStatus: &gcpv1beta1.GCPMachineProviderStatus{},
+		providerSpec:   &machinev1.GCPMachineProviderSpec{},
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
 		computeService: mockComputeService,
 	}
 	reconciler := newReconciler(&machineScope)
@@ -410,18 +409,18 @@ func TestExists(t *testing.T) {
 func TestDelete(t *testing.T) {
 	_, mockComputeService := computeservice.NewComputeServiceMock()
 	machineScope := machineScope{
-		machine: &machinev1beta1.Machine{
+		machine: &machinev1.Machine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "",
 				Namespace: "",
 				Labels: map[string]string{
-					machinev1beta1.MachineClusterIDLabel: "CLUSTERID",
+					machinev1.MachineClusterIDLabel: "CLUSTERID",
 				},
 			},
 		},
 		coreClient:     controllerfake.NewFakeClient(),
-		providerSpec:   &gcpv1beta1.GCPMachineProviderSpec{},
-		providerStatus: &gcpv1beta1.GCPMachineProviderStatus{},
+		providerSpec:   &machinev1.GCPMachineProviderSpec{},
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
 		computeService: mockComputeService,
 	}
 	reconciler := newReconciler(&machineScope)
@@ -464,18 +463,18 @@ func TestProcessTargetPools(t *testing.T) {
 	}
 	tpEmpty := []string{}
 	machineScope := machineScope{
-		machine: &machinev1beta1.Machine{
+		machine: &machinev1.Machine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      instanceName,
 				Namespace: "",
 			},
 		},
 		coreClient: controllerfake.NewFakeClient(),
-		providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+		providerSpec: &machinev1.GCPMachineProviderSpec{
 			Zone: "zone1",
 		},
 		projectID:      projecID,
-		providerStatus: &gcpv1beta1.GCPMachineProviderStatus{},
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
 		computeService: mockComputeService,
 	}
 	tCases := []struct {
@@ -547,18 +546,18 @@ func TestGetUserData(t *testing.T) {
 	defaultNamespace := "test"
 	userDataBlob := "test"
 	machineScope := machineScope{
-		machine: &machinev1beta1.Machine{
+		machine: &machinev1.Machine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "",
 				Namespace: defaultNamespace,
 			},
 		},
-		providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+		providerSpec: &machinev1.GCPMachineProviderSpec{
 			UserDataSecret: &corev1.LocalObjectReference{
 				Name: userDataSecretName,
 			},
 		},
-		providerStatus: &gcpv1beta1.GCPMachineProviderStatus{},
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
 	}
 	reconciler := newReconciler(&machineScope)
 
@@ -632,13 +631,13 @@ func TestSetMachineCloudProviderSpecifics(t *testing.T) {
 
 	r := Reconciler{
 		machineScope: &machineScope{
-			machine: &machinev1beta1.Machine{
+			machine: &machinev1.Machine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "",
 					Namespace: "",
 				},
 			},
-			providerSpec: &gcpv1beta1.GCPMachineProviderSpec{
+			providerSpec: &machinev1.GCPMachineProviderSpec{
 				MachineType: testType,
 				Region:      testRegion,
 				Zone:        testZone,

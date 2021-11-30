@@ -22,8 +22,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/openshift/cluster-api-provider-gcp/pkg/termination"
-	"github.com/openshift/cluster-api-provider-gcp/pkg/version"
+	"github.com/openshift/machine-api-provider-gcp/pkg/termination"
+	"github.com/openshift/machine-api-provider-gcp/pkg/version"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"

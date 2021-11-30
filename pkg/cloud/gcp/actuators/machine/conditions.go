@@ -1,7 +1,7 @@
 package machine
 
 import (
-	"github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
@@ -13,8 +13,8 @@ const (
 )
 
 func shouldUpdateCondition(
-	oldCondition v1beta1.GCPMachineProviderCondition,
-	newCondition v1beta1.GCPMachineProviderCondition,
+	oldCondition machinev1.GCPMachineProviderCondition,
+	newCondition machinev1.GCPMachineProviderCondition,
 ) bool {
 	if oldCondition.Status != newCondition.Status ||
 		oldCondition.Reason != newCondition.Reason ||
@@ -33,14 +33,14 @@ func shouldUpdateCondition(
 // 1) Requested Status is different than existing status.
 // 2) requested Reason is different that existing one.
 // 3) requested Message is different that existing one.
-func reconcileProviderConditions(conditions []v1beta1.GCPMachineProviderCondition, newCondition v1beta1.GCPMachineProviderCondition) []v1beta1.GCPMachineProviderCondition {
+func reconcileProviderConditions(conditions []machinev1.GCPMachineProviderCondition, newCondition machinev1.GCPMachineProviderCondition) []machinev1.GCPMachineProviderCondition {
 	now := metav1.Now()
 	currentCondition := findCondition(conditions, newCondition.Type)
 	if currentCondition == nil {
 		klog.V(4).Infof("Adding new provider condition %v", newCondition)
 		conditions = append(
 			conditions,
-			v1beta1.GCPMachineProviderCondition{
+			machinev1.GCPMachineProviderCondition{
 				Type:               newCondition.Type,
 				Status:             newCondition.Status,
 				Reason:             newCondition.Reason,
@@ -69,7 +69,7 @@ func reconcileProviderConditions(conditions []v1beta1.GCPMachineProviderConditio
 
 // findCondition finds in the machine the condition that has the
 // specified condition type. If none exists, then returns nil.
-func findCondition(conditions []v1beta1.GCPMachineProviderCondition, conditionType v1beta1.GCPMachineProviderConditionType) *v1beta1.GCPMachineProviderCondition {
+func findCondition(conditions []machinev1.GCPMachineProviderCondition, conditionType machinev1.ConditionType) *machinev1.GCPMachineProviderCondition {
 	for i, condition := range conditions {
 		if condition.Type == conditionType {
 			return &conditions[i]

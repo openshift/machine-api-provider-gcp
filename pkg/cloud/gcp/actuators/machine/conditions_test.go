@@ -3,23 +3,23 @@ package machine
 import (
 	"testing"
 
-	"github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 )
 
 func TestShouldUpdateCondition(t *testing.T) {
 	testCases := []struct {
-		oldCondition v1beta1.GCPMachineProviderCondition
-		newCondition v1beta1.GCPMachineProviderCondition
+		oldCondition machinev1.GCPMachineProviderCondition
+		newCondition machinev1.GCPMachineProviderCondition
 		expected     bool
 	}{
 		{
-			oldCondition: v1beta1.GCPMachineProviderCondition{
+			oldCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.GCPMachineProviderCondition{
+			newCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
@@ -27,12 +27,12 @@ func TestShouldUpdateCondition(t *testing.T) {
 			expected: false,
 		},
 		{
-			oldCondition: v1beta1.GCPMachineProviderCondition{
+			oldCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.GCPMachineProviderCondition{
+			newCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "different reason",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
@@ -40,12 +40,12 @@ func TestShouldUpdateCondition(t *testing.T) {
 			expected: true,
 		},
 		{
-			oldCondition: v1beta1.GCPMachineProviderCondition{
+			oldCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "foo",
 				Message: "different message",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.GCPMachineProviderCondition{
+			newCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
@@ -53,12 +53,12 @@ func TestShouldUpdateCondition(t *testing.T) {
 			expected: true,
 		},
 		{
-			oldCondition: v1beta1.GCPMachineProviderCondition{
+			oldCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionTrue,
 			},
-			newCondition: v1beta1.GCPMachineProviderCondition{
+			newCondition: machinev1.GCPMachineProviderCondition{
 				Reason:  "foo",
 				Message: "bar",
 				Status:  corev1.ConditionFalse,

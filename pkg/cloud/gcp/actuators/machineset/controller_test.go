@@ -24,9 +24,8 @@ import (
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	gtypes "github.com/onsi/gomega/types"
-	machineproviderv1 "github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 	corev1 "k8s.io/api/core/v1"
@@ -84,7 +83,7 @@ var _ = Describe("Reconciler", func() {
 			Client: mgr.GetClient(),
 			Log:    log.Log,
 
-			getGCPService: func(_ string, _ machineproviderv1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error) {
+			getGCPService: func(_ string, _ machinev1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error) {
 				return service, nil
 			},
 		}
@@ -107,7 +106,7 @@ var _ = Describe("Reconciler", func() {
 
 	type reconcileTestCase = struct {
 		machineType         string
-		guestAccelerators   []*machineproviderv1.GCPAcceleratorConfig
+		guestAccelerators   []machinev1.GCPGPUConfig
 		existingAnnotations map[string]string
 		expectedAnnotations map[string]string
 		expectedEvents      []string
@@ -162,7 +161,7 @@ var _ = Describe("Reconciler", func() {
 		}),
 		Entry("with a n1-standard-2 and with guestAccelerators", reconcileTestCase{
 			machineType:         "n1-standard-2",
-			guestAccelerators:   []*machineproviderv1.GCPAcceleratorConfig{{AcceleratorType: "nvidia-tesla-p100", AcceleratorCount: 2}},
+			guestAccelerators:   []machinev1.GCPGPUConfig{{Type: "nvidia-tesla-p100", Count: 2}},
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
 				cpuKey:    "2",
@@ -254,7 +253,7 @@ func TestReconcile(t *testing.T) {
 	testCases := []struct {
 		name                string
 		machineType         string
-		guestAccelerators   []*machineproviderv1.GCPAcceleratorConfig
+		guestAccelerators   []machinev1.GCPGPUConfig
 		mockMachineTypesGet func(project string, zone string, machineType string) (*compute.MachineType, error)
 		existingAnnotations map[string]string
 		expectedAnnotations map[string]string
@@ -297,7 +296,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name:                "with a n1-standard-2and guestAccelerators",
 			machineType:         "n1-standard-2",
-			guestAccelerators:   []*machineproviderv1.GCPAcceleratorConfig{{AcceleratorType: "nvidia-tesla-p100", AcceleratorCount: 2}},
+			guestAccelerators:   []machinev1.GCPGPUConfig{{Type: "nvidia-tesla-p100", Count: 2}},
 			mockMachineTypesGet: mockMachineTypesFunc,
 			existingAnnotations: make(map[string]string),
 			expectedAnnotations: map[string]string{
@@ -376,7 +375,7 @@ func TestReconcile(t *testing.T) {
 			r := &Reconciler{
 				recorder: record.NewFakeRecorder(1),
 				cache:    newMachineTypesCache(),
-				getGCPService: func(_ string, _ machineproviderv1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error) {
+				getGCPService: func(_ string, _ machinev1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error) {
 					return service, nil
 				},
 			}
@@ -391,16 +390,16 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
-func newTestMachineSet(namespace string, machineType string, guestAccelerators []*machineproviderv1.GCPAcceleratorConfig, existingAnnotations map[string]string) (*machinev1.MachineSet, error) {
+func newTestMachineSet(namespace string, machineType string, guestAccelerators []machinev1.GCPGPUConfig, existingAnnotations map[string]string) (*machinev1.MachineSet, error) {
 	// Copy anntotations map so we don't modify the input
 	annotations := make(map[string]string)
 	for k, v := range existingAnnotations {
 		annotations[k] = v
 	}
 
-	machineProviderSpec := &machineproviderv1.GCPMachineProviderSpec{
-		MachineType:       machineType,
-		GuestAccelerators: guestAccelerators,
+	machineProviderSpec := &machinev1.GCPMachineProviderSpec{
+		MachineType: machineType,
+		GPUs:        guestAccelerators,
 	}
 	providerSpec, err := providerSpecFromMachine(machineProviderSpec)
 	if err != nil {
@@ -423,7 +422,7 @@ func newTestMachineSet(namespace string, machineType string, guestAccelerators [
 	}, nil
 }
 
-func providerSpecFromMachine(in *machineproviderv1.GCPMachineProviderSpec) (machinev1.ProviderSpec, error) {
+func providerSpecFromMachine(in *machinev1.GCPMachineProviderSpec) (machinev1.ProviderSpec, error) {
 	bytes, err := json.Marshal(in)
 	if err != nil {
 		return machinev1.ProviderSpec{}, err

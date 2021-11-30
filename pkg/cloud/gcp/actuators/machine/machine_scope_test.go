@@ -10,9 +10,9 @@ import (
 
 	. "github.com/onsi/gomega"
 	configv1 "github.com/openshift/api/config/v1"
-	gcpv1 "github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -63,7 +63,7 @@ func TestNewMachineScope(t *testing.T) {
 
 	fakeClient := controllerfake.NewFakeClient(userDataSecret, credentialsSecret)
 
-	validProviderSpec, err := gcpv1.RawExtensionFromProviderSpec(&gcpv1.GCPMachineProviderSpec{
+	validProviderSpec, err := util.RawExtensionFromProviderSpec(&machinev1.GCPMachineProviderSpec{
 		CredentialsSecret: &corev1.LocalObjectReference{
 			Name: credentialsSecretName,
 		},
@@ -329,7 +329,7 @@ func TestPatchMachine(t *testing.T) {
 				instanceID := "123"
 				instanceState := "running"
 
-				providerStatus, err := gcpv1.RawExtensionFromProviderStatus(&gcpv1.GCPMachineProviderStatus{
+				providerStatus, err := util.RawExtensionFromProviderStatus(&machinev1.GCPMachineProviderStatus{
 					InstanceID:    &instanceID,
 					InstanceState: &instanceState,
 				})
@@ -341,7 +341,7 @@ func TestPatchMachine(t *testing.T) {
 				m.Status.ProviderStatus = providerStatus
 			},
 			expect: func(m *machinev1.Machine) error {
-				providerStatus, err := gcpv1.ProviderStatusFromRawExtension(m.Status.ProviderStatus)
+				providerStatus, err := util.ProviderStatusFromRawExtension(m.Status.ProviderStatus)
 				if err != nil {
 					return fmt.Errorf("unable to get provider status: %v", err)
 				}
@@ -365,7 +365,7 @@ func TestPatchMachine(t *testing.T) {
 			timeout := 10 * time.Second
 
 			// original objects
-			originalProviderSpec := gcpv1.GCPMachineProviderSpec{
+			originalProviderSpec := machinev1.GCPMachineProviderSpec{
 				CredentialsSecret: &corev1.LocalObjectReference{
 					Name: credentialsSecretName,
 				},
@@ -374,7 +374,7 @@ func TestPatchMachine(t *testing.T) {
 				},
 			}
 
-			rawProviderSpec, err := gcpv1.RawExtensionFromProviderSpec(&originalProviderSpec)
+			rawProviderSpec, err := util.RawExtensionFromProviderSpec(&originalProviderSpec)
 			gs.Expect(err).ToNot(HaveOccurred())
 
 			machine := &machinev1.Machine{
