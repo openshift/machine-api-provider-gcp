@@ -1,4 +1,4 @@
-module github.com/openshift/cluster-api-provider-gcp
+module github.com/openshift/machine-api-provider-gcp
 
 go 1.17
 
