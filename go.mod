@@ -8,7 +8,7 @@ require (
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.14.0
 	github.com/openshift/api v0.0.0-20211122143513-bc2d3cf62e4c
-	github.com/openshift/machine-api-operator v0.2.1-0.20211124051759-8a3c4ee5c91f
+	github.com/openshift/machine-api-operator v0.2.1-0.20211201181114-ce3579a54b48
 	golang.org/x/oauth2 v0.0.0-20210622215436-a8dc77f794b6
 	google.golang.org/api v0.44.0
 	k8s.io/api v0.22.4
@@ -111,6 +111,4 @@ require (
 replace (
 	github.com/go-logr/logr => github.com/go-logr/logr v0.4.0
 	k8s.io/klog/v2 v2.30.0 => k8s.io/klog/v2 v2.10.0
-	sigs.k8s.io/cluster-api-provider-aws => github.com/openshift/cluster-api-provider-aws v0.2.1-0.20210622023641-c69a3acaee27
-	sigs.k8s.io/cluster-api-provider-azure => github.com/openshift/cluster-api-provider-azure v0.1.0-alpha.3.0.20210816141152-a7c40345b994
 )
