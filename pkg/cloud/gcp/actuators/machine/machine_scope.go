@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
-	"github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/util"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -33,15 +32,15 @@ type machineScope struct {
 	providerID     string
 	computeService computeservice.GCPComputeService
 	machine        *machinev1.Machine
-	providerSpec   *v1beta1.GCPMachineProviderSpec
-	providerStatus *v1beta1.GCPMachineProviderStatus
+	providerSpec   *machinev1.GCPMachineProviderSpec
+	providerStatus *machinev1.GCPMachineProviderStatus
 
 	// origMachine captures original value of machine before it is updated (to
 	// skip object updated if nothing is changed)
 	origMachine *machinev1.Machine
 	// origProviderStatus captures original value of machine provider status
 	// before it is updated (to skip object updated if nothing is changed)
-	origProviderStatus *v1beta1.GCPMachineProviderStatus
+	origProviderStatus *machinev1.GCPMachineProviderStatus
 
 	machineToBePatched controllerclient.Patch
 }
@@ -53,12 +52,12 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		params.Context = context.Background()
 	}
 
-	providerSpec, err := v1beta1.ProviderSpecFromRawExtension(params.machine.Spec.ProviderSpec.Value)
+	providerSpec, err := util.ProviderSpecFromRawExtension(params.machine.Spec.ProviderSpec.Value)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("failed to get machine config: %v", err)
 	}
 
-	providerStatus, err := v1beta1.ProviderStatusFromRawExtension(params.machine.Status.ProviderStatus)
+	providerStatus, err := util.ProviderStatusFromRawExtension(params.machine.Status.ProviderStatus)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("failed to get machine provider status: %v", err.Error())
 	}
@@ -131,7 +130,7 @@ func (s *machineScope) Close() error {
 }
 
 func (s *machineScope) setMachineSpec() error {
-	ext, err := v1beta1.RawExtensionFromProviderSpec(s.providerSpec)
+	ext, err := util.RawExtensionFromProviderSpec(s.providerSpec)
 	if err != nil {
 		return err
 	}
@@ -149,7 +148,7 @@ func (s *machineScope) setMachineStatus() error {
 	}
 
 	klog.V(4).Infof("Storing machine status for %q, resourceVersion: %v, generation: %v", s.machine.Name, s.machine.ResourceVersion, s.machine.Generation)
-	ext, err := v1beta1.RawExtensionFromProviderStatus(s.providerStatus)
+	ext, err := util.RawExtensionFromProviderStatus(s.providerStatus)
 	if err != nil {
 		return err
 	}

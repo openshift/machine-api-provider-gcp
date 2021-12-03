@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
 	"google.golang.org/api/compute/v1"
@@ -60,6 +59,11 @@ func containsString(sli []string, str string) bool {
 	return false
 }
 
+func restartPolicyToBool(policy machinev1.GCPRestartPolicyType) *bool {
+	restart := policy == machinev1.RestartPolicyAlways
+	return &restart
+}
+
 // machineTypeAcceleratorCount represents nvidia-tesla-A100 GPUs which are only compatible with A2 machine family
 func (r *Reconciler) checkQuota(machineTypeAcceleratorCount int64) error {
 	region, err := r.computeService.RegionGet(r.projectID, r.providerSpec.Region)
@@ -67,25 +71,25 @@ func (r *Reconciler) checkQuota(machineTypeAcceleratorCount int64) error {
 		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Failed to get region %s via compute service: %v", r.providerSpec.Region, err))
 	}
 	quotas := region.Quotas
-	var guestAccelerators = []*v1beta1.GCPAcceleratorConfig{}
+	var guestAccelerators = []machinev1.GCPGPUConfig{}
 	// When the machine type has associated accelerator instances (A2 machine family), accelerators will be nvidia-tesla-A100s.
 	// Additional guest accelerators are not allowed so ignore the providerSpec GuestAccelerators.
 	if machineTypeAcceleratorCount != 0 {
-		guestAccelerators = append(guestAccelerators, &v1beta1.GCPAcceleratorConfig{AcceleratorType: "nvidia-tesla-a100", AcceleratorCount: machineTypeAcceleratorCount})
+		guestAccelerators = append(guestAccelerators, machinev1.GCPGPUConfig{Type: "nvidia-tesla-a100", Count: int32(machineTypeAcceleratorCount)})
 	} else {
-		guestAccelerators = r.providerSpec.GuestAccelerators
+		guestAccelerators = r.providerSpec.GPUs
 	}
 	// validate zone and then quota
 	// guestAccelerators slice can not store more than 1 element.
 	// More than one accelerator included in request results in error -> googleapi: Error 413: Value for field 'resource.guestAccelerators' is too large: maximum size 1 element(s); actual size 2., fieldSizeTooLarge
 	accelerator := guestAccelerators[0]
-	_, err = r.computeService.AcceleratorTypeGet(r.projectID, r.providerSpec.Zone, accelerator.AcceleratorType)
+	_, err = r.computeService.AcceleratorTypeGet(r.projectID, r.providerSpec.Zone, accelerator.Type)
 	if err != nil {
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("AcceleratorType %s not available in the zone %s : %v", accelerator.AcceleratorType, r.providerSpec.Zone, err))
+		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("AcceleratorType %s not available in the zone %s : %v", accelerator.Type, r.providerSpec.Zone, err))
 	}
-	metric := supportedGpuTypes[accelerator.AcceleratorType]
+	metric := supportedGpuTypes[accelerator.Type]
 	if metric == "" {
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Unsupported accelerator type %s", accelerator.AcceleratorType))
+		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Unsupported accelerator type %s", accelerator.Type))
 	}
 	// preemptible instances have separate quota
 	if r.providerSpec.Preemptible {
@@ -94,7 +98,7 @@ func (r *Reconciler) checkQuota(machineTypeAcceleratorCount int64) error {
 	// check quota for GA
 	for i, q := range quotas {
 		if q.Metric == metric {
-			if int64(q.Usage)+accelerator.AcceleratorCount > int64(q.Limit) {
+			if int32(q.Usage)+accelerator.Count > int32(q.Limit) {
 				return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Quota exceeded. Metric: %s. Usage: %v. Limit: %v.", metric, q.Usage, q.Limit))
 			}
 			break
@@ -107,11 +111,11 @@ func (r *Reconciler) checkQuota(machineTypeAcceleratorCount int64) error {
 }
 
 func (r *Reconciler) validateGuestAccelerators() error {
-	if len(r.providerSpec.GuestAccelerators) == 0 && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
+	if len(r.providerSpec.GPUs) == 0 && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
 		// no accelerators to validate so return nil
 		return nil
 	}
-	if len(r.providerSpec.GuestAccelerators) > 0 && strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
+	if len(r.providerSpec.GPUs) > 0 && strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
 		return machinecontroller.InvalidMachineConfiguration("A2 Machine types have pre-attached guest accelerators. Adding additional guest accelerators is not supported")
 	}
 	if !strings.HasPrefix(r.providerSpec.MachineType, "n1-") && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
@@ -150,17 +154,17 @@ func (r *Reconciler) create() error {
 		},
 		Scheduling: &compute.Scheduling{
 			Preemptible:       r.providerSpec.Preemptible,
-			AutomaticRestart:  r.providerSpec.AutomaticRestart,
-			OnHostMaintenance: r.providerSpec.OnHostMaintenance,
+			AutomaticRestart:  restartPolicyToBool(r.providerSpec.RestartPolicy),
+			OnHostMaintenance: string(r.providerSpec.OnHostMaintenance),
 		},
 	}
 
 	var guestAccelerators = []*compute.AcceleratorConfig{}
 
-	if l := len(r.providerSpec.GuestAccelerators); l == 1 {
+	if l := len(r.providerSpec.GPUs); l == 1 {
 		guestAccelerators = append(guestAccelerators, &compute.AcceleratorConfig{
-			AcceleratorType:  fmt.Sprintf(acceleratorTypeFmt, zone, r.providerSpec.GuestAccelerators[0].AcceleratorType),
-			AcceleratorCount: r.providerSpec.GuestAccelerators[0].AcceleratorCount,
+			AcceleratorType:  fmt.Sprintf(acceleratorTypeFmt, zone, r.providerSpec.GPUs[0].Type),
+			AcceleratorCount: int64(r.providerSpec.GPUs[0].Count),
 		})
 	} else if l > 1 {
 		return machinecontroller.InvalidMachineConfiguration("More than one type of accelerator provided. Instances support only one accelerator type at a time.")
@@ -190,7 +194,7 @@ func (r *Reconciler) create() error {
 			AutoDelete: disk.AutoDelete,
 			Boot:       disk.Boot,
 			InitializeParams: &compute.AttachedDiskInitializeParams{
-				DiskSizeGb:  disk.SizeGb,
+				DiskSizeGb:  disk.SizeGB,
 				DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
 				Labels:      disk.Labels,
 				SourceImage: srcImage,
@@ -263,8 +267,8 @@ func (r *Reconciler) create() error {
 			Namespace: r.machine.Namespace,
 			Reason:    err.Error(),
 		})
-		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&v1beta1.GCPMachineProviderCondition{
-			Type:    v1beta1.MachineCreated,
+		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&machinev1.GCPMachineProviderCondition{
+			Type:    machinev1.MachineCreated,
 			Reason:  machineCreationFailedReason,
 			Message: err.Error(),
 			Status:  corev1.ConditionFalse,
@@ -299,7 +303,7 @@ func (r *Reconciler) update() error {
 // reconcileMachineWithCloudState reconcile machineSpec and status with the latest cloud state
 // if a failedCondition is passed it updates the providerStatus.Conditions and return
 // otherwise it fetches the relevant cloud instance and reconcile the rest of the fields
-func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *v1beta1.GCPMachineProviderCondition) error {
+func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *machinev1.GCPMachineProviderCondition) error {
 	klog.Infof("%s: Reconciling machine object with cloud state", r.machine.Name)
 	if failedCondition != nil {
 		r.providerStatus.Conditions = reconcileProviderConditions(r.providerStatus.Conditions, *failedCondition)
@@ -344,8 +348,8 @@ func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *v1beta1.GCP
 		r.machine.Status.Addresses = nodeAddresses
 		r.providerStatus.InstanceState = &freshInstance.Status
 		r.providerStatus.InstanceID = &freshInstance.Name
-		succeedCondition := v1beta1.GCPMachineProviderCondition{
-			Type:    v1beta1.MachineCreated,
+		succeedCondition := machinev1.GCPMachineProviderCondition{
+			Type:    machinev1.MachineCreated,
 			Reason:  machineCreationSucceedReason,
 			Message: machineCreationSucceedMessage,
 			Status:  corev1.ConditionTrue,
@@ -409,7 +413,7 @@ func (r *Reconciler) getCustomUserData() (string, error) {
 	return string(data), nil
 }
 
-func validateMachine(machine machinev1.Machine, providerSpec v1beta1.GCPMachineProviderSpec) error {
+func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachineProviderSpec) error {
 	// TODO (alberto): First validation should happen via webhook before the object is persisted.
 	// This is a complementary validation to fail early in case of lacking proper webhook validation.
 	// Default values can also be set here
@@ -565,7 +569,7 @@ func (r *Reconciler) deleteInstanceFromTargetPool(instanceLink string, pool stri
 	return nil
 }
 
-func generateDiskEncryptionKey(keyRef *v1beta1.GCPEncryptionKeyReference, projectID string) *compute.CustomerEncryptionKey {
+func generateDiskEncryptionKey(keyRef *machinev1.GCPEncryptionKeyReference, projectID string) *compute.CustomerEncryptionKey {
 	if keyRef == nil || keyRef.KMSKey == nil {
 		return nil
 	}

@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"sync"
 
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	gce "google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 	"k8s.io/klog/v2"

@@ -18,12 +18,12 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
+
 	"github.com/go-logr/logr"
-	providerconfigv1 "github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
-	"github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/util"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	mapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -52,7 +52,7 @@ type Reconciler struct {
 	cache    *machineTypesCache
 
 	// Allow a mock GCPComputeService to be injected during testing
-	getGCPService func(namespace string, providerConfig providerconfigv1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error)
+	getGCPService func(namespace string, providerConfig machinev1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error)
 }
 
 // SetupWithManager creates a new controller for a manager.
@@ -158,9 +158,9 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 	machineSet.Annotations[memoryKey] = strconv.FormatInt(machineType.MemoryMb, 10)
 
 	switch {
-	case len(providerConfig.GuestAccelerators) > 0:
+	case len(providerConfig.GPUs) > 0:
 		// Guest accelerators will always be max size of 1
-		machineSet.Annotations[gpuKey] = strconv.FormatInt(providerConfig.GuestAccelerators[0].AcceleratorCount, 10)
+		machineSet.Annotations[gpuKey] = strconv.FormatInt(int64(providerConfig.GPUs[0].Count), 10)
 	case len(machineType.Accelerators) > 0:
 		// Accelerators will always be max size of 1
 		machineSet.Annotations[gpuKey] = strconv.FormatInt(machineType.Accelerators[0].GuestAcceleratorCount, 10)
@@ -171,12 +171,12 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 	return ctrl.Result{}, nil
 }
 
-func getproviderConfig(machineSet *machinev1.MachineSet) (*providerconfigv1.GCPMachineProviderSpec, error) {
-	return providerconfigv1.ProviderSpecFromRawExtension(machineSet.Spec.Template.Spec.ProviderSpec.Value)
+func getproviderConfig(machineSet *machinev1.MachineSet) (*machinev1.GCPMachineProviderSpec, error) {
+	return util.ProviderSpecFromRawExtension(machineSet.Spec.Template.Spec.ProviderSpec.Value)
 }
 
 // getRealGCPService constructs a real GCPService for talking to GCP
-func (r *Reconciler) getRealGCPService(namespace string, providerConfig providerconfigv1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error) {
+func (r *Reconciler) getRealGCPService(namespace string, providerConfig machinev1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error) {
 	serviceAccountJSON, err := util.GetCredentialsSecret(r.Client, namespace, providerConfig)
 	if err != nil {
 		return nil, err

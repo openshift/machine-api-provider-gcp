@@ -8,10 +8,9 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
-	"github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1"
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
-	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
-
+	machinev1 "github.com/openshift/api/machine/v1beta1"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -109,7 +108,7 @@ func TestActuatorEvents(t *testing.T) {
 		g.Expect(k8sClient.Delete(context.Background(), credentialsSecret)).To(Succeed())
 	}()
 
-	providerSpec, err := v1beta1.RawExtensionFromProviderSpec(&v1beta1.GCPMachineProviderSpec{
+	providerSpec, err := util.RawExtensionFromProviderSpec(&machinev1.GCPMachineProviderSpec{
 		CredentialsSecret: &corev1.LocalObjectReference{
 			Name: credentialsSecretName,
 		},
@@ -303,7 +302,7 @@ func TestActuatorExists(t *testing.T) {
 		},
 	}
 
-	providerSpec, err := v1beta1.RawExtensionFromProviderSpec(&v1beta1.GCPMachineProviderSpec{
+	providerSpec, err := util.RawExtensionFromProviderSpec(&machinev1.GCPMachineProviderSpec{
 		CredentialsSecret: &corev1.LocalObjectReference{
 			Name: credentialsSecretName,
 		},

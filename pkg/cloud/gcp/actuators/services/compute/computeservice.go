@@ -8,7 +8,7 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 
-	"github.com/openshift/cluster-api-provider-gcp/pkg/version"
+	"github.com/openshift/machine-api-provider-gcp/pkg/version"
 	"google.golang.org/api/compute/v1"
 )
 

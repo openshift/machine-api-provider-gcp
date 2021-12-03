@@ -7,14 +7,13 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/cluster-api-provider-gcp/pkg/apis"
-	"github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/machine"
-	machinesetcontroller "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/machineset"
-	computeservice "github.com/openshift/cluster-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
-	"github.com/openshift/cluster-api-provider-gcp/pkg/version"
-	"github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	machinev1 "github.com/openshift/api/machine/v1beta1"
 	capimachine "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/machine"
+	machinesetcontroller "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/machineset"
+	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	"github.com/openshift/machine-api-provider-gcp/pkg/version"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -115,11 +114,7 @@ func main() {
 		ComputeClientBuilder: computeservice.NewComputeService,
 	})
 
-	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
-		klog.Fatal(err)
-	}
-
-	if err := v1beta1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := machinev1.AddToScheme(mgr.GetScheme()); err != nil {
 		klog.Fatal(err)
 	}
 
