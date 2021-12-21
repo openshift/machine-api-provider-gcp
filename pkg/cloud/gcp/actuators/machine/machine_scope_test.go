@@ -302,6 +302,9 @@ func TestPatchMachine(t *testing.T) {
 		{
 			name: "Test changing labels",
 			mutate: func(m *machinev1.Machine) {
+				if m.Labels == nil {
+					m.Labels = map[string]string{}
+				}
 				m.Labels["testlabel"] = "test"
 			},
 			expect: func(m *machinev1.Machine) error {
