@@ -14,6 +14,7 @@ import (
 	googleapi "google.golang.org/api/googleapi"
 	corev1 "k8s.io/api/core/v1"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -267,11 +268,11 @@ func (r *Reconciler) create() error {
 			Namespace: r.machine.Namespace,
 			Reason:    err.Error(),
 		})
-		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&machinev1.GCPMachineProviderCondition{
-			Type:    machinev1.MachineCreated,
+		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&metav1.Condition{
+			Type:    string(machinev1.MachineCreated),
 			Reason:  machineCreationFailedReason,
 			Message: err.Error(),
-			Status:  corev1.ConditionFalse,
+			Status:  metav1.ConditionFalse,
 		}); reconcileWithCloudError != nil {
 			klog.Errorf("Failed to reconcile machine with cloud state: %v", reconcileWithCloudError)
 		}
@@ -303,10 +304,10 @@ func (r *Reconciler) update() error {
 // reconcileMachineWithCloudState reconcile machineSpec and status with the latest cloud state
 // if a failedCondition is passed it updates the providerStatus.Conditions and return
 // otherwise it fetches the relevant cloud instance and reconcile the rest of the fields
-func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *machinev1.GCPMachineProviderCondition) error {
+func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *metav1.Condition) error {
 	klog.Infof("%s: Reconciling machine object with cloud state", r.machine.Name)
 	if failedCondition != nil {
-		r.providerStatus.Conditions = reconcileProviderConditions(r.providerStatus.Conditions, *failedCondition)
+		r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, *failedCondition)
 		return nil
 	} else {
 		freshInstance, err := r.computeService.InstancesGet(r.projectID, r.providerSpec.Zone, r.machine.Name)
@@ -348,13 +349,13 @@ func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *machinev1.G
 		r.machine.Status.Addresses = nodeAddresses
 		r.providerStatus.InstanceState = &freshInstance.Status
 		r.providerStatus.InstanceID = &freshInstance.Name
-		succeedCondition := machinev1.GCPMachineProviderCondition{
-			Type:    machinev1.MachineCreated,
+		succeedCondition := metav1.Condition{
+			Type:    string(machinev1.MachineCreated),
 			Reason:  machineCreationSucceedReason,
 			Message: machineCreationSucceedMessage,
-			Status:  corev1.ConditionTrue,
+			Status:  metav1.ConditionTrue,
 		}
-		r.providerStatus.Conditions = reconcileProviderConditions(r.providerStatus.Conditions, succeedCondition)
+		r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, succeedCondition)
 
 		r.setMachineCloudProviderSpecifics(freshInstance)
 

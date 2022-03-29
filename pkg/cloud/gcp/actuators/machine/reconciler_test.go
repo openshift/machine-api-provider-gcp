@@ -21,7 +21,7 @@ func TestCreate(t *testing.T) {
 		name                string
 		labels              map[string]string
 		providerSpec        *machinev1.GCPMachineProviderSpec
-		expectedCondition   *machinev1.GCPMachineProviderCondition
+		expectedCondition   *metav1.Condition
 		secret              *corev1.Secret
 		mockInstancesInsert func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
 		validateInstance    func(t *testing.T, instance *compute.Instance)
@@ -29,9 +29,9 @@ func TestCreate(t *testing.T) {
 	}{
 		{
 			name: "Successfully create machine",
-			expectedCondition: &machinev1.GCPMachineProviderCondition{
-				Type:    machinev1.MachineCreated,
-				Status:  corev1.ConditionTrue,
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionTrue,
 				Reason:  machineCreationSucceedReason,
 				Message: machineCreationSucceedMessage,
 			},
@@ -71,9 +71,9 @@ func TestCreate(t *testing.T) {
 		{
 			name:          "Fail on compute service error",
 			expectedError: errors.New("failed to create instance via compute service: fail"),
-			expectedCondition: &machinev1.GCPMachineProviderCondition{
-				Type:    machinev1.MachineCreated,
-				Status:  corev1.ConditionFalse,
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionFalse,
 				Reason:  machineCreationFailedReason,
 				Message: "fail",
 			},
@@ -84,9 +84,9 @@ func TestCreate(t *testing.T) {
 		{
 			name:          "Fail on google api error",
 			expectedError: machinecontroller.InvalidMachineConfiguration("error launching instance: %v", "googleapi: Error 400: error"),
-			expectedCondition: &machinev1.GCPMachineProviderCondition{
-				Type:    machinev1.MachineCreated,
-				Status:  corev1.ConditionFalse,
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionFalse,
 				Reason:  machineCreationFailedReason,
 				Message: "googleapi: Error 400: error",
 			},
