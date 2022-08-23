@@ -271,8 +271,7 @@ func (r *Reconciler) create() error {
 	// if yes, we need to get the powershell boot script from the provider spec
 	// or the `windows-user-data` secret in the `openshfit-machine-api` namespace.
 	// see https://github.com/openshift/windows-machine-config-operator/blob/master/pkg/secrets/secrets.go
-	osid, found := r.machine.Labels["machine.openshift.io/os-id"]
-	if found && osid == "Windows" {
+	if windows.IsMachineOSWindows(*r.machine) {
 		script := r.getWindowsScriptFromProviderSpec()
 
 		if len(script) == 0 {
