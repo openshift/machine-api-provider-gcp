@@ -248,26 +248,85 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
-			name: "Fail on Windows machine create when no script is in providerSpec, nor Secret",
+			name: "Windows machine puts powershell script in the proper metadata field",
 			labels: map[string]string{
 				"machine.openshift.io/os-id":    "Windows",
 				machinev1.MachineClusterIDLabel: "CLUSTERID",
 			},
-			expectedError: errors.New("error getting Windows script secret data: Windows script data secret \"windows-user-data\" in namespace \"openshift-machine-api\" not found: secrets \"windows-user-data\" not found"),
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				UserDataSecret: &corev1.LocalObjectReference{
+					Name: "windows-user-data",
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "windows-user-data",
+				},
+				Data: map[string][]byte{
+					userDataSecretKey: []byte("some windows script"),
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.Metadata == nil {
+					t.Errorf("Expected Metadata to exist on Instance but it is nil")
+				}
+				found := false
+				for _, item := range instance.Metadata.Items {
+					if item.Key == windowsScriptMetadataKey && item.Value != nil && *item.Value == "some windows script" {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("Expected to find Windows script data in instance Metadata")
+				}
+			},
 		},
 		{
-			name: "Succeed on Windows machine create when script is in providerSpec",
+			name: "Windows machine with script in secret and metadata chooses the proper value",
 			labels: map[string]string{
 				"machine.openshift.io/os-id":    "Windows",
 				machinev1.MachineClusterIDLabel: "CLUSTERID",
 			},
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				Metadata: []*machinev1.GCPMetadata{
-					{
+					&machinev1.GCPMetadata{
 						Key:   windowsScriptMetadataKey,
-						Value: pointer.String("some windows script"),
+						Value: pointer.String("the proper script value"),
 					},
 				},
+				UserDataSecret: &corev1.LocalObjectReference{
+					Name: "windows-user-data",
+				},
+			},
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "windows-user-data",
+				},
+				Data: map[string][]byte{
+					userDataSecretKey: []byte("this should be overridden by the metadata value"),
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.Metadata == nil {
+					t.Errorf("Expected Metadata to exist on Instance but it is nil")
+				}
+				found := 0
+				foundidx := -1
+				for idx, item := range instance.Metadata.Items {
+					if item.Key == windowsScriptMetadataKey && item.Value != nil {
+						found += 1
+						foundidx = idx
+					}
+				}
+				if found == 0 {
+					t.Errorf("Expected to find Windows script data in instance Metadata")
+				}
+				if found > 1 {
+					t.Errorf("Expected to find one Windows script key in instance Metadata, found %d", found)
+				}
+				if *instance.Metadata.Items[foundidx].Value != "the proper script value" {
+					t.Errorf("Unexpected script value found: %s", *instance.Metadata.Items[foundidx].Value)
+				}
 			},
 		},
 	}
@@ -698,93 +757,5 @@ func TestSetMachineCloudProviderSpecifics(t *testing.T) {
 
 	if _, ok := r.machine.Spec.Labels[machinecontroller.MachineInterruptibleInstanceLabelName]; !ok {
 		t.Error("Missing spot instance label in machine spec")
-	}
-}
-
-func TestGetWindowsScriptFromSecret(t *testing.T) {
-	windowsScriptSecretName := "windows-user-data"
-	defaultNamespace := "openshift-machine-api"
-	secretBlob := "test"
-	machineScope := machineScope{
-		machine: &machinev1.Machine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "",
-				Namespace: defaultNamespace,
-			},
-		},
-		providerSpec: &machinev1.GCPMachineProviderSpec{
-			UserDataSecret: &corev1.LocalObjectReference{
-				Name: windowsScriptSecretName,
-			},
-		},
-		providerStatus: &machinev1.GCPMachineProviderStatus{},
-	}
-	reconciler := newReconciler(&machineScope)
-
-	testCases := []struct {
-		name   string
-		secret *corev1.Secret
-		error  error
-	}{
-		{
-			name: "Valid secret",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      windowsScriptSecretName,
-					Namespace: defaultNamespace,
-				},
-				Data: map[string][]byte{
-					wmcoSecretDataKey: []byte(secretBlob),
-				},
-			},
-			error: nil,
-		},
-		{
-			name: "Secret not found",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "notFound",
-					Namespace: defaultNamespace,
-				},
-				Data: map[string][]byte{
-					wmcoSecretDataKey: []byte(secretBlob),
-				},
-			},
-			error: &machinecontroller.MachineError{},
-		},
-		{
-			name: "Bad key in secret data",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      windowsScriptSecretName,
-					Namespace: defaultNamespace,
-				},
-				Data: map[string][]byte{
-					"badKey": []byte(secretBlob),
-				},
-			},
-			error: &machinecontroller.MachineError{},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			reconciler.coreClient = controllerfake.NewFakeClientWithScheme(scheme.Scheme, tc.secret)
-			windowsScript, err := reconciler.getWindowsScriptFromSecret()
-			if tc.error != nil {
-				if err == nil {
-					t.Fatal("Expected error")
-				}
-				_, expectMachineError := tc.error.(*machinecontroller.MachineError)
-				_, gotMachineError := err.(*machinecontroller.MachineError)
-				if expectMachineError && !gotMachineError || !expectMachineError && gotMachineError {
-					t.Errorf("Expected %T, got: %T", tc.error, err)
-				}
-			} else {
-				if windowsScript != secretBlob {
-					t.Errorf("Expected: %v, got: %v", secretBlob, windowsScript)
-				}
-			}
-		})
 	}
 }
