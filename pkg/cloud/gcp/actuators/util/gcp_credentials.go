@@ -35,14 +35,14 @@ const (
 // This expects the https://github.com/openshift/cloud-credential-operator to make a secret
 // with a serviceAccount JSON Key content available. E.g:
 //
-// apiVersion: v1
-// kind: Secret
-// metadata:
-//  name: gcp-sa
-//  namespace: openshift-machine-api
-// type: Opaque
-// data:
-//  serviceAccountJSON: base64 encoded content of the file
+//	apiVersion: v1
+//	kind: Secret
+//	metadata:
+//	 name: gcp-sa
+//	 namespace: openshift-machine-api
+//	type: Opaque
+//	data:
+//	 serviceAccountJSON: base64 encoded content of the file
 func GetCredentialsSecret(coreClient controllerclient.Client, namespace string, spec machinev1.GCPMachineProviderSpec) (string, error) {
 	if spec.CredentialsSecret == nil {
 		return "", nil
