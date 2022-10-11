@@ -289,7 +289,7 @@ func TestCreate(t *testing.T) {
 			},
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				Metadata: []*machinev1.GCPMetadata{
-					&machinev1.GCPMetadata{
+					{
 						Key:   windowsScriptMetadataKey,
 						Value: pointer.String("the proper script value"),
 					},
