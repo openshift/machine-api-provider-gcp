@@ -16,18 +16,22 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	userDataSecretKey        = "userData"
-	requeueAfterSeconds      = 20
-	instanceLinkFmt          = "https://www.googleapis.com/compute/v1/projects/%s/zones/%s/instances/%s"
-	kmsKeyNameFmt            = "projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s"
-	machineTypeFmt           = "zones/%s/machineTypes/%s"
-	acceleratorTypeFmt       = "zones/%s/acceleratorTypes/%s"
-	windowsScriptMetadataKey = "sysprep-specialize-script-ps1"
+	userDataSecretKey         = "userData"
+	requeueAfterSeconds       = 20
+	instanceLinkFmt           = "https://www.googleapis.com/compute/v1/projects/%s/zones/%s/instances/%s"
+	kmsKeyNameFmt             = "projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s"
+	machineTypeFmt            = "zones/%s/machineTypes/%s"
+	acceleratorTypeFmt        = "zones/%s/acceleratorTypes/%s"
+	windowsScriptMetadataKey  = "sysprep-specialize-script-ps1"
+	openshiftMachineRoleLabel = "machine.openshift.io/cluster-api-machine-role"
+	masterMachineRole         = "master"
 )
 
 // Reconciler are list of services required by machine actuator, easy to create a fake
@@ -315,6 +319,13 @@ func (r *Reconciler) update() error {
 	if err := r.processTargetPools(true, r.addInstanceToTargetPool); err != nil {
 		return err
 	}
+
+	// Add control plane machines to instance group, if necessary
+	if r.machineScope.machine.ObjectMeta.Labels[openshiftMachineRoleLabel] == masterMachineRole {
+		if err := r.registerInstanceToControlPlaneInstanceGroup(); err != nil {
+			return fmt.Errorf("failed to register instance to instance group: %v", err)
+		}
+	}
 	return r.reconcileMachineWithCloudState(nil)
 }
 
@@ -485,6 +496,14 @@ func (r *Reconciler) delete() error {
 	if err := r.processTargetPools(false, r.deleteInstanceFromTargetPool); err != nil {
 		return err
 	}
+
+	// Remove instance from instance group, if necessary
+	if r.machineScope.machine.Labels[openshiftMachineRoleLabel] == masterMachineRole {
+		if err := r.unregisterInstanceFromControlPlaneInstanceGroup(); err != nil {
+			return fmt.Errorf("%s: failed to unregister instance from instance group: %v", r.machine.Name, err)
+		}
+	}
+
 	exists, err := r.exists()
 	if err != nil {
 		return err
@@ -556,6 +575,80 @@ func (r *Reconciler) processTargetPools(desired bool, poolFunc poolProcessor) er
 		}
 	}
 	return nil
+}
+
+// registerInstanceToControlPlaneInstanceGroup ensures that the instance is assigned to the control plane instance group of its zone.
+func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
+	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	instanceGroupName := r.controlPlaneGroupName()
+
+	instanceSets, err := r.fetchRunningInstancesInInstanceGroup(r.projectID, r.providerSpec.Zone, instanceGroupName)
+	if err != nil {
+		return fmt.Errorf("failed to fetch running instances in instance group %s: %v", instanceGroupName, err)
+	}
+
+	if !instanceSets.Has(instanceSelfLink) && pointer.StringDeref(r.providerStatus.InstanceState, "") == "RUNNING" {
+		klog.V(4).Info("Registering instance in the instancegroup", "name", r.machine.Name, "instancegroup", instanceGroupName)
+		_, err := r.computeService.InstanceGroupsAddInstances(
+			r.projectID,
+			r.providerSpec.Zone,
+			instanceSelfLink,
+			instanceGroupName)
+		if err != nil {
+			return fmt.Errorf("InstanceGroupsAddInstances request failed: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// unregisterInstanceFromControlPlaneInstanceGroup ensures that the instance is removed from the control plane instance group.
+func (r *Reconciler) unregisterInstanceFromControlPlaneInstanceGroup() error {
+	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	instanceGroupName := r.controlPlaneGroupName()
+
+	instanceSets, err := r.fetchRunningInstancesInInstanceGroup(r.projectID, r.providerSpec.Zone, instanceGroupName)
+	if err != nil {
+		return fmt.Errorf("failed to fetch running instances in instance group %s: %v", instanceGroupName, err)
+	}
+
+	if len(instanceSets) > 0 && instanceSets.Has(instanceSelfLink) {
+		klog.V(4).Info("Unregistering instance from the instancegroup", "name", r.machine.Name, "instancegroup", instanceGroupName)
+		_, err := r.computeService.InstanceGroupsRemoveInstances(
+			r.projectID,
+			r.providerSpec.Zone,
+			instanceSelfLink,
+			instanceGroupName)
+		if err != nil {
+			return fmt.Errorf("InstanceGroupsRemoveInstances request failed: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// fetchRunningInstancesInInstanceGroup fetches all running instances and returns a set of instance links.
+func (r *Reconciler) fetchRunningInstancesInInstanceGroup(projectID string, zone string, instaceGroup string) (sets.String, error) {
+	instanceList, err := r.computeService.InstanceGroupsListInstances(projectID, zone, instaceGroup,
+		&compute.InstanceGroupsListInstancesRequest{
+			InstanceState: "RUNNING",
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("instanceGroupsListInstances request failed: %v", err)
+	}
+
+	instanceSets := sets.NewString()
+	for _, i := range instanceList.Items {
+		instanceSets.Insert(i.Instance)
+	}
+
+	return instanceSets, nil
+}
+
+// ControlPlaneGroupName generates the name of the instance group that this instace should belong to.
+func (r *Reconciler) controlPlaneGroupName() string {
+	return fmt.Sprintf("%s-%s-%s", r.machine.Labels[machinev1.MachineClusterIDLabel], masterMachineRole, r.providerSpec.Zone)
 }
 
 func (r *Reconciler) addInstanceToTargetPool(instanceLink string, pool string) error {
