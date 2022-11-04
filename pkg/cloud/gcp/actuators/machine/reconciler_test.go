@@ -3,6 +3,7 @@ package machine
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/openshift/api/machine/v1beta1"
@@ -666,6 +667,160 @@ func TestProcessTargetPools(t *testing.T) {
 		}
 		if pt.called != tc.expectedCall {
 			t.Errorf("tc %v: expected didn't match observed: %v, %v", i, tc.expectedCall, pt.called)
+		}
+	}
+}
+
+func TestRegisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
+	_, mockComputeService := computeservice.NewComputeServiceMock()
+	projecID := "testProject"
+	instanceName := "testInstance"
+
+	okScope := machineScope{
+		machine: &machinev1.Machine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      instanceName,
+				Namespace: "",
+				Labels: map[string]string{
+					openshiftMachineRoleLabel:       masterMachineRole,
+					machinev1.MachineClusterIDLabel: "CLUSTERID",
+				},
+			},
+		},
+		coreClient: controllerfake.NewFakeClient(),
+		providerSpec: &machinev1.GCPMachineProviderSpec{
+			Zone: "zone1",
+		},
+		projectID: projecID,
+		providerStatus: &machinev1.GCPMachineProviderStatus{
+			InstanceState: pointer.String("RUNNING"),
+		},
+		computeService: mockComputeService,
+	}
+	emptyInstanceListScope := okScope
+	emptyInstanceListScope.projectID = computeservice.EmptyInstanceList
+	groupDoesNotExistScope := okScope
+	groupDoesNotExistScope.projectID = computeservice.GroupDoesNotExist
+	errRegisteringInstanceScope := okScope
+	errRegisteringInstanceScope.projectID = computeservice.ErrRegisteringInstance
+	tCases := []struct {
+		expectedErr bool
+		errString   string
+		scope       *machineScope
+	}{
+		{
+			// Instance already in group
+			expectedErr: false,
+			scope:       &okScope,
+		},
+		{
+			// Instace added to group
+			expectedErr: false,
+			scope:       &emptyInstanceListScope,
+		},
+		{
+			// Group doesn't exist
+			expectedErr: true,
+			errString:   "failed to fetch running instances in instance group CLUSTERID-master-zone1: instanceGroupsListInstances request failed: googleapi: got HTTP response code 404 with body",
+			scope:       &groupDoesNotExistScope,
+		},
+		{
+			// Error registering instance
+			expectedErr: true,
+			errString:   "InstanceGroupsAddInstances request failed: a GCP error",
+			scope:       &errRegisteringInstanceScope,
+		},
+	}
+	for _, tc := range tCases {
+		rec := newReconciler(tc.scope)
+		err := rec.registerInstanceToControlPlaneInstanceGroup()
+		if tc.expectedErr {
+			if err == nil {
+				t.Errorf("expected error from registerInstanceToInstanceGroup but got nil")
+			} else if !strings.Contains(err.Error(), tc.errString) {
+				t.Errorf("expected error from registerInstanceToInstanceGroup to contain \"%v\" but got \"%v\"", tc.errString, err.Error())
+			}
+		} else {
+			if err != nil {
+				t.Errorf("unexpected error from registerInstanceToInstanceGroup: %v", err)
+			}
+		}
+	}
+}
+
+func TestUnregisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
+	_, mockComputeService := computeservice.NewComputeServiceMock()
+	projecID := "testProject"
+	instanceName := "testInstance"
+
+	okScope := machineScope{
+		machine: &machinev1.Machine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      instanceName,
+				Namespace: "",
+				Labels: map[string]string{
+					openshiftMachineRoleLabel:       masterMachineRole,
+					machinev1.MachineClusterIDLabel: "CLUSTERID",
+				},
+			},
+		},
+		coreClient: controllerfake.NewFakeClient(),
+		providerSpec: &machinev1.GCPMachineProviderSpec{
+			Zone: "zone1",
+		},
+		projectID: projecID,
+		providerStatus: &machinev1.GCPMachineProviderStatus{
+			InstanceState: pointer.String("RUNNING"),
+		},
+		computeService: mockComputeService,
+	}
+	emptyInstanceListScope := okScope
+	emptyInstanceListScope.projectID = "emptyInstanceList"
+	groupDoesNotExistScope := okScope
+	groupDoesNotExistScope.projectID = "groupDoesNotExist"
+	errUnregisteringInstanceScope := okScope
+	errUnregisteringInstanceScope.projectID = "errUnregisteringInstance"
+	tCases := []struct {
+		expectedErr bool
+		errString   string
+		scope       *machineScope
+	}{
+		{
+			// Instance not in group
+			expectedErr: false,
+			scope:       &emptyInstanceListScope,
+		},
+		{
+			// Instance removed from group
+			expectedErr: false,
+			scope:       &okScope,
+		},
+		{
+			// Group doesn't exist
+			expectedErr: true,
+			errString:   "failed to fetch running instances in instance group CLUSTERID-master-zone1: instanceGroupsListInstances request failed: googleapi: got HTTP response code 404 with body",
+			scope:       &groupDoesNotExistScope,
+		},
+		{
+			// Error unregistering instance
+			expectedErr: true,
+			errString:   "InstanceGroupsRemoveInstances request failed: a GCP error",
+			scope:       &errUnregisteringInstanceScope,
+		},
+	}
+	for _, tc := range tCases {
+		rec := newReconciler(tc.scope)
+		err := rec.unregisterInstanceFromControlPlaneInstanceGroup()
+		if tc.expectedErr {
+			if err == nil {
+				t.Errorf("expected error \"%v\" from unregisterInstanceFromControlPlaneInstanceGroup but got nil", tc.errString)
+			} else if !strings.Contains(err.Error(), tc.errString) {
+				t.Errorf("expected error from unregisterInstanceFromControlPlaneInstanceGroup to contain \"%v\" but got \"%v\"", tc.errString, err.Error())
+			}
+		} else {
+			if err != nil {
+				t.Errorf("unexpected error from unregisterInstanceFromControlPlaneInstanceGroup: %v", err)
+			}
 		}
 	}
 }
