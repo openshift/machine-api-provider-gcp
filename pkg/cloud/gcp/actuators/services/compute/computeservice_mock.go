@@ -2,14 +2,19 @@ package computeservice
 
 import (
 	"context"
+	"errors"
 
 	compute "google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 )
 
 const (
-	NoMachinesInPool  = "NoMachinesInPool"
-	WithMachineInPool = "WithMachineInPool"
+	NoMachinesInPool         = "NoMachinesInPool"
+	WithMachineInPool        = "WithMachineInPool"
+	GroupDoesNotExist        = "groupDoesNotExist"
+	EmptyInstanceList        = "emptyInstanceList"
+	ErrUnregisteringInstance = "errUnregisteringInstance"
+	ErrRegisteringInstance   = "errRegisteringInstance"
 )
 
 type GCPComputeServiceMock struct {
@@ -142,4 +147,50 @@ func (c *GCPComputeServiceMock) GPUCompatibleMachineTypesList(project string, zo
 }
 func (c *GCPComputeServiceMock) AcceleratorTypeGet(project string, zone string, acceleratorType string) (*compute.AcceleratorType, error) {
 	return nil, nil
+}
+
+func (c *GCPComputeServiceMock) InstanceGroupsListInstances(projectID string, zone string, instanceGroup string, request *compute.InstanceGroupsListInstancesRequest) (*compute.InstanceGroupsListInstances, error) {
+	if projectID == GroupDoesNotExist {
+		return nil, &googleapi.Error{
+			Code: 404,
+		}
+	}
+	if projectID == EmptyInstanceList {
+		return &compute.InstanceGroupsListInstances{}, nil
+	}
+	if projectID == ErrUnregisteringInstance {
+		return &compute.InstanceGroupsListInstances{
+			Items: []*compute.InstanceWithNamedPorts{
+				{
+					Instance: "https://www.googleapis.com/compute/v1/projects/errUnregisteringInstance/zones/zone1/instances/testInstance",
+				},
+			},
+		}, nil
+	}
+	instances := &compute.InstanceGroupsListInstances{
+		Items: []*compute.InstanceWithNamedPorts{
+			{
+				Instance: "https://www.googleapis.com/compute/v1/projects/testProject/zones/zone1/instances/testInstance",
+			},
+		},
+	}
+	return instances, nil
+}
+
+func (c *GCPComputeServiceMock) InstanceGroupsAddInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error) {
+	if project == ErrRegisteringInstance {
+		return nil, errors.New("a GCP error")
+	}
+	return &compute.Operation{
+		Status: "DONE",
+	}, nil
+}
+
+func (c *GCPComputeServiceMock) InstanceGroupsRemoveInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error) {
+	if project == ErrUnregisteringInstance {
+		return nil, errors.New("a GCP error")
+	}
+	return &compute.Operation{
+		Status: "DONE",
+	}, nil
 }
