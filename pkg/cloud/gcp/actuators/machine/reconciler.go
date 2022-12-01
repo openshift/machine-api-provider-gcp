@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -66,9 +67,21 @@ func containsString(sli []string, str string) bool {
 	return false
 }
 
-func restartPolicyToBool(policy machinev1.GCPRestartPolicyType) *bool {
-	restart := policy == machinev1.RestartPolicyAlways
-	return &restart
+func restartPolicyToBool(policy machinev1.GCPRestartPolicyType, preemptible bool) (*bool, error) {
+	// for more information about how the restart policy works, see the GCP docs at
+	// https://cloud.google.com/compute/docs/instances/setting-vm-host-options#settingoptions
+	if len(policy) == 0 {
+		return nil, nil
+	} else if policy == machinev1.RestartPolicyAlways {
+		if preemptible {
+			return nil, errors.New("preemptible instances cannot be automatically restarted")
+		}
+		return pointer.Bool(true), nil
+	} else if policy == machinev1.RestartPolicyNever {
+		return pointer.Bool(false), nil
+	}
+
+	return nil, fmt.Errorf("unrecognized restart policy: %s", policy)
 }
 
 // machineTypeAcceleratorCount represents nvidia-tesla-A100 GPUs which are only compatible with A2 machine family
@@ -161,9 +174,14 @@ func (r *Reconciler) create() error {
 		},
 		Scheduling: &compute.Scheduling{
 			Preemptible:       r.providerSpec.Preemptible,
-			AutomaticRestart:  restartPolicyToBool(r.providerSpec.RestartPolicy),
 			OnHostMaintenance: string(r.providerSpec.OnHostMaintenance),
 		},
+	}
+
+	if automaticRestart, err := restartPolicyToBool(r.providerSpec.RestartPolicy, r.providerSpec.Preemptible); err != nil {
+		return machinecontroller.InvalidMachineConfiguration("failed to determine restart policy: %v", err)
+	} else {
+		instance.Scheduling.AutomaticRestart = automaticRestart
 	}
 
 	var guestAccelerators = []*compute.AcceleratorConfig{}
