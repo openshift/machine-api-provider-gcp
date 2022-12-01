@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/openshift/api/machine/v1beta1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
@@ -328,6 +329,51 @@ func TestCreate(t *testing.T) {
 					t.Errorf("Unexpected script value found: %s", *instance.Metadata.Items[foundidx].Value)
 				}
 			},
+		},
+		{
+			name: "Always restart policy with a preemptible instance produces an error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Preemptible:   true,
+				RestartPolicy: v1beta1.RestartPolicyAlways,
+			},
+			expectedError: errors.New("failed to determine restart policy: preemptible instances cannot be automatically restarted"),
+		},
+		{
+			name: "Always restart policy with a non-preemptible instance does not produce an error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Preemptible:   false,
+				RestartPolicy: v1beta1.RestartPolicyAlways,
+			},
+		},
+		{
+			name: "Never restart policy with a preemptible instance does not produce an error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Preemptible:   true,
+				RestartPolicy: v1beta1.RestartPolicyNever,
+			},
+		},
+		{
+			name: "Never restart policy with a non-preemptible instance does not produce an error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Preemptible:   false,
+				RestartPolicy: v1beta1.RestartPolicyNever,
+			},
+		},
+		{
+			name: "Unknown restart policy with a preemptible instance produces an error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Preemptible:   true,
+				RestartPolicy: "SometimesMaybe",
+			},
+			expectedError: errors.New("failed to determine restart policy: unrecognized restart policy: SometimesMaybe"),
+		},
+		{
+			name: "Unknown restart policy with a non-preemptible instance produces an error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Preemptible:   false,
+				RestartPolicy: "SometimesMaybe",
+			},
+			expectedError: errors.New("failed to determine restart policy: unrecognized restart policy: SometimesMaybe"),
 		},
 	}
 
@@ -757,5 +803,97 @@ func TestSetMachineCloudProviderSpecifics(t *testing.T) {
 
 	if _, ok := r.machine.Spec.Labels[machinecontroller.MachineInterruptibleInstanceLabelName]; !ok {
 		t.Error("Missing spot instance label in machine spec")
+	}
+}
+
+func TestRestartPolicyToBool(t *testing.T) {
+	cases := []struct {
+		name           string
+		policy         v1beta1.GCPRestartPolicyType
+		preemptible    bool
+		expectedReturn *bool
+		expectedError  error
+	}{
+		{
+			name:           "Empty policy with non-preemptible returns nil and no error",
+			policy:         "",
+			preemptible:    false,
+			expectedReturn: nil,
+			expectedError:  nil,
+		},
+		{
+			name:           "Empty policy with preemptible returns nil and no error",
+			policy:         "",
+			preemptible:    true,
+			expectedReturn: nil,
+			expectedError:  nil,
+		},
+		{
+			name:           "Always policy with non-preemptible returns true and no error",
+			policy:         v1beta1.RestartPolicyAlways,
+			preemptible:    false,
+			expectedReturn: pointer.Bool(true),
+			expectedError:  nil,
+		},
+		{
+			name:           "Always policy with preemptible returns nil and an error",
+			policy:         v1beta1.RestartPolicyAlways,
+			preemptible:    true,
+			expectedReturn: nil,
+			expectedError:  errors.New("preemptible instances cannot be automatically restarted"),
+		},
+		{
+			name:           "Never policy with non-preemptible returns false and no error",
+			policy:         v1beta1.RestartPolicyNever,
+			preemptible:    false,
+			expectedReturn: pointer.Bool(false),
+			expectedError:  nil,
+		},
+		{
+			name:           "Never policy with preemptible returns false and no error",
+			policy:         v1beta1.RestartPolicyNever,
+			preemptible:    true,
+			expectedReturn: pointer.Bool(false),
+			expectedError:  nil,
+		},
+		{
+			name:           "Unknown policy with non-preemptible returns nil and an error",
+			policy:         "SometimesMaybe",
+			preemptible:    false,
+			expectedReturn: nil,
+			expectedError:  errors.New("unrecognized restart policy: SometimesMaybe"),
+		},
+		{
+			name:           "Unknown policy with preemptible returns nil and an error",
+			policy:         "SometimesMaybe",
+			preemptible:    true,
+			expectedReturn: nil,
+			expectedError:  errors.New("unrecognized restart policy: SometimesMaybe"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			observedReturn, observedError := restartPolicyToBool(tc.policy, tc.preemptible)
+
+			if tc.expectedReturn == nil && observedReturn != nil {
+				t.Errorf("Expected nil return value, got: %v", *observedReturn)
+			} else if observedReturn != nil && *tc.expectedReturn != *observedReturn {
+				t.Errorf("Expected return value: %v, got: %v", *tc.expectedReturn, *observedReturn)
+			}
+
+			if tc.expectedError != nil {
+				if observedError == nil {
+					t.Error("restartPolicyToBool was expected to return error")
+				}
+				if observedError.Error() != tc.expectedError.Error() {
+					t.Errorf("Expected: %v, got %v", tc.expectedError, observedError)
+				}
+			} else {
+				if observedError != nil {
+					t.Errorf("restartPolicyToBool was not expected to return error: %v", observedError)
+				}
+			}
+		})
 	}
 }
