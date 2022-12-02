@@ -846,6 +846,74 @@ func TestCreatingNewInstanceGroup(t *testing.T) {
 	}
 }
 
+func TestUpdateBackendServiceWithInstanceGroup(t *testing.T) {
+	_, mockComputeService := computeservice.NewComputeServiceMock()
+	projectID := "testProject"
+	instanceName := "testInstance"
+
+	okScope := machineScope{
+		machine: &machinev1.Machine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      instanceName,
+				Namespace: "",
+				Labels: map[string]string{
+					openshiftMachineRoleLabel:       masterMachineRole,
+					machinev1.MachineClusterIDLabel: "CLUSTERID",
+				},
+			},
+		},
+		coreClient: controllerfake.NewFakeClient(),
+		providerSpec: &machinev1.GCPMachineProviderSpec{
+			Zone: "zone1",
+		},
+		projectID: projectID,
+		providerStatus: &machinev1.GCPMachineProviderStatus{
+			InstanceState: pointer.String("PROVISIONING"),
+		},
+		computeService: mockComputeService,
+	}
+
+	ErrToGetBackendService := okScope
+	ErrToGetBackendService.projectID = computeservice.ErrGettingBackendService
+	ErrPatchingBackendService := okScope
+	ErrPatchingBackendService.projectID = computeservice.ErrPatchingBackendService
+
+	tCases := []struct {
+		expectedErr bool
+		errString   string
+		scope       *machineScope
+	}{
+		// Failed to get the backend service
+		{
+			expectedErr: true,
+			errString:   "backendServiceGet request failed: failed to get the regional backend service",
+			scope:       &ErrToGetBackendService,
+		},
+		// Failed to assign the new instance group to backend service
+		{
+			expectedErr: true,
+			errString:   "addInstanceGroupToBackendService request failed: failed to add new instanceGroup to backend service",
+			scope:       &ErrPatchingBackendService,
+		},
+	}
+
+	for _, tc := range tCases {
+		rec := newReconciler(tc.scope)
+		err := rec.updateBackendServiceWithInstanceGroup()
+		if tc.expectedErr {
+			if err == nil {
+				t.Errorf("expected error from registerNewInstanceGroup but got nil")
+			} else if !strings.Contains(err.Error(), tc.errString) {
+				t.Errorf("expected error from registerNewInstanceGroup to contain \"%v\" but got \"%v\"", tc.errString, err.Error())
+			}
+		} else {
+			if err != nil {
+				t.Errorf("unexpected error from registerNewInstanceGroup: %v", err)
+			}
+		}
+	}
+}
+
 func TestGetUserData(t *testing.T) {
 	userDataSecretName := "test"
 	defaultNamespace := "test"

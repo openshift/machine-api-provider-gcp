@@ -16,6 +16,8 @@ const (
 	ErrUnregisteringInstance       = "errUnregisteringInstance"
 	ErrRegisteringInstance         = "errRegisteringInstance"
 	ErrRegisteringNewInstanceGroup = "errRegisteringNewInstanceGroup"
+	ErrPatchingBackendService      = "errPatchingBackendService"
+	ErrGettingBackendService       = "errGettingBackendService"
 )
 
 type GCPComputeServiceMock struct {
@@ -207,4 +209,24 @@ func (c *GCPComputeServiceMock) InstanceGroupInsert(project string, zone string,
 		return nil, errors.New("failed to register new instanceGroup")
 	}
 	return nil, nil
+}
+
+func (c *GCPComputeServiceMock) InstanceGroupGet(project string, zone string, instanceGroupName string) (*compute.InstanceGroup, error) {
+	return &compute.InstanceGroup{}, nil
+}
+
+func (c *GCPComputeServiceMock) AddInstanceGroupToBackendService(project string, region string, backendServiceName string, backendService *compute.BackendService) (*compute.Operation, error) {
+	if project == ErrPatchingBackendService {
+		return nil, errors.New("failed to add new instanceGroup to backend service")
+	}
+	return &compute.Operation{
+		Status: "DONE",
+	}, nil
+}
+
+func (c *GCPComputeServiceMock) BackendServiceGet(project string, region string, backendServiceName string) (*compute.BackendService, error) {
+	if project == ErrGettingBackendService {
+		return nil, errors.New("failed to get the regional backend service")
+	}
+	return &compute.BackendService{}, nil
 }

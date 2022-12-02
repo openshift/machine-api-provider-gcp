@@ -32,6 +32,9 @@ type GCPComputeService interface {
 	InstanceGroupsAddInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
 	InstanceGroupsRemoveInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
 	InstanceGroupInsert(project string, zone string, instanceGroup *compute.InstanceGroup) (*compute.Operation, error)
+	InstanceGroupGet(project string, zone string, instanceGroupName string) (*compute.InstanceGroup, error)
+	AddInstanceGroupToBackendService(project string, region string, backendServiceName string, backendService *compute.BackendService) (*compute.Operation, error)
+	BackendServiceGet(project string, region string, backendServiceName string) (*compute.BackendService, error)
 }
 
 type computeService struct {
@@ -175,4 +178,16 @@ func (c *computeService) InstanceGroupsListInstances(project string, zone string
 
 func (c *computeService) InstanceGroupInsert(project string, zone string, instanceGroup *compute.InstanceGroup) (*compute.Operation, error) {
 	return c.service.InstanceGroups.Insert(project, zone, instanceGroup).Do()
+}
+
+func (c *computeService) InstanceGroupGet(project string, zone string, instanceGroupName string) (*compute.InstanceGroup, error) {
+	return c.service.InstanceGroups.Get(project, zone, instanceGroupName).Do()
+}
+
+func (c *computeService) AddInstanceGroupToBackendService(project string, region string, backendServiceName string, backendService *compute.BackendService) (*compute.Operation, error) {
+	return c.service.RegionBackendServices.Update(project, region, backendServiceName, backendService).Do()
+}
+
+func (c *computeService) BackendServiceGet(project string, region string, backendServiceName string) (*compute.BackendService, error) {
+	return c.service.RegionBackendServices.Get(project, region, backendServiceName).Do()
 }
