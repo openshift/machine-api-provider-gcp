@@ -31,6 +31,7 @@ type GCPComputeService interface {
 	InstanceGroupsListInstances(project string, zone string, instanceGroup string, request *compute.InstanceGroupsListInstancesRequest) (*compute.InstanceGroupsListInstances, error)
 	InstanceGroupsAddInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
 	InstanceGroupsRemoveInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
+	InstanceGroupInsert(project string, zone string, instanceGroup *compute.InstanceGroup) (*compute.Operation, error)
 }
 
 type computeService struct {
@@ -170,4 +171,8 @@ func (c *computeService) InstanceGroupsRemoveInstances(project string, zone stri
 
 func (c *computeService) InstanceGroupsListInstances(project string, zone string, instanceGroup string, request *compute.InstanceGroupsListInstancesRequest) (*compute.InstanceGroupsListInstances, error) {
 	return c.service.InstanceGroups.ListInstances(project, zone, instanceGroup, request).Do()
+}
+
+func (c *computeService) InstanceGroupInsert(project string, zone string, instanceGroup *compute.InstanceGroup) (*compute.Operation, error) {
+	return c.service.InstanceGroups.Insert(project, zone, instanceGroup).Do()
 }

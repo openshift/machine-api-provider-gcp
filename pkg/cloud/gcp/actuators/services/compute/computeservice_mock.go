@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	NoMachinesInPool         = "NoMachinesInPool"
-	WithMachineInPool        = "WithMachineInPool"
-	GroupDoesNotExist        = "groupDoesNotExist"
-	EmptyInstanceList        = "emptyInstanceList"
-	ErrUnregisteringInstance = "errUnregisteringInstance"
-	ErrRegisteringInstance   = "errRegisteringInstance"
+	NoMachinesInPool               = "NoMachinesInPool"
+	WithMachineInPool              = "WithMachineInPool"
+	GroupDoesNotExist              = "groupDoesNotExist"
+	EmptyInstanceList              = "emptyInstanceList"
+	ErrUnregisteringInstance       = "errUnregisteringInstance"
+	ErrRegisteringInstance         = "errRegisteringInstance"
+	ErrRegisteringNewInstanceGroup = "errRegisteringNewInstanceGroup"
 )
 
 type GCPComputeServiceMock struct {
@@ -193,4 +194,17 @@ func (c *GCPComputeServiceMock) InstanceGroupsRemoveInstances(project string, zo
 	return &compute.Operation{
 		Status: "DONE",
 	}, nil
+}
+
+func (c *GCPComputeServiceMock) InstanceGroupInsert(project string, zone string, instanceGroup *compute.InstanceGroup) (*compute.Operation, error) {
+	if project == GroupDoesNotExist {
+		return &compute.Operation{
+			Status: "DONE",
+		}, nil
+
+	}
+	if project == ErrRegisteringNewInstanceGroup {
+		return nil, errors.New("failed to register new instanceGroup")
+	}
+	return nil, nil
 }

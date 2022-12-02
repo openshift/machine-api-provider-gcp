@@ -635,7 +635,10 @@ func (r *Reconciler) fetchRunningInstancesInInstanceGroup(projectID string, zone
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("instanceGroupsListInstances request failed: %v", err)
+		if errRegister := r.registerNewInstanceGroup(); errRegister != nil {
+			return nil, fmt.Errorf("instanceGroupsListInstances request failed: %v, failed to register the new instance group named %v: %v", err, instaceGroup, errRegister)
+		}
+		return nil, fmt.Errorf("instanceGroupsListInstances request failed: %v, registered the new instance group named %v successfully", err, instaceGroup)
 	}
 
 	instanceSets := sets.NewString()
@@ -644,6 +647,21 @@ func (r *Reconciler) fetchRunningInstancesInInstanceGroup(projectID string, zone
 	}
 
 	return instanceSets, nil
+}
+
+// registerNewInstanceGroup registers an instance group when there is an instance
+// that is using that unkown instance group.
+func (r *Reconciler) registerNewInstanceGroup() error {
+	_, err := r.computeService.InstanceGroupInsert(r.projectID, r.providerSpec.Zone, &compute.InstanceGroup{
+		Name:   r.controlPlaneGroupName(),
+		Region: r.providerSpec.Region,
+		Zone:   r.providerSpec.Zone,
+	})
+	if err != nil {
+		return fmt.Errorf("instanceGroupInsert request failed: %v", err)
+	}
+
+	return nil
 }
 
 // ControlPlaneGroupName generates the name of the instance group that this instace should belong to.
