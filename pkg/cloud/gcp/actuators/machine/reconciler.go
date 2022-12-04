@@ -164,6 +164,12 @@ func (r *Reconciler) create() error {
 			AutomaticRestart:  restartPolicyToBool(r.providerSpec.RestartPolicy),
 			OnHostMaintenance: string(r.providerSpec.OnHostMaintenance),
 		},
+		ShieldedInstanceConfig: &compute.ShieldedInstanceConfig{
+			EnableSecureBoot: r.providerSpec.EnableSecureBoot,
+		},
+		ConfidentialInstanceConfig: &compute.ConfidentialInstanceConfig{
+			EnableConfidentialCompute: r.providerSpec.EnableConfidentialCompute,
+		},
 	}
 
 	var guestAccelerators = []*compute.AcceleratorConfig{}
