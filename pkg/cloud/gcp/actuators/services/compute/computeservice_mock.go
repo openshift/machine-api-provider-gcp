@@ -3,6 +3,7 @@ package computeservice
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	compute "google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
@@ -18,6 +19,8 @@ const (
 	ErrRegisteringNewInstanceGroup = "errRegisteringNewInstanceGroup"
 	ErrPatchingBackendService      = "errPatchingBackendService"
 	ErrGettingBackendService       = "errGettingBackendService"
+	PatchBackendService            = "patchBackendService"
+	AddGroupSuccessfully           = "addGroupSuccessfully"
 )
 
 type GCPComputeServiceMock struct {
@@ -199,7 +202,7 @@ func (c *GCPComputeServiceMock) InstanceGroupsRemoveInstances(project string, zo
 }
 
 func (c *GCPComputeServiceMock) InstanceGroupInsert(project string, zone string, instanceGroup *compute.InstanceGroup) (*compute.Operation, error) {
-	if project == GroupDoesNotExist {
+	if project == AddGroupSuccessfully {
 		return &compute.Operation{
 			Status: "DONE",
 		}, nil
@@ -212,10 +215,14 @@ func (c *GCPComputeServiceMock) InstanceGroupInsert(project string, zone string,
 }
 
 func (c *GCPComputeServiceMock) InstanceGroupGet(project string, zone string, instanceGroupName string) (*compute.InstanceGroup, error) {
+	if project == ErrRegisteringNewInstanceGroup {
+		return nil, errors.New("failed to get the instanceGroup")
+	}
 	return &compute.InstanceGroup{}, nil
 }
 
 func (c *GCPComputeServiceMock) AddInstanceGroupToBackendService(project string, region string, backendServiceName string, backendService *compute.BackendService) (*compute.Operation, error) {
+	fmt.Printf("I am here and this is the project %s\n\n", project)
 	if project == ErrPatchingBackendService {
 		return nil, errors.New("failed to add new instanceGroup to backend service")
 	}
@@ -225,8 +232,14 @@ func (c *GCPComputeServiceMock) AddInstanceGroupToBackendService(project string,
 }
 
 func (c *GCPComputeServiceMock) BackendServiceGet(project string, region string, backendServiceName string) (*compute.BackendService, error) {
-	if project == ErrGettingBackendService {
+	if project == ErrGettingBackendService || project == ErrPatchingBackendService {
 		return nil, errors.New("failed to get the regional backend service")
 	}
-	return &compute.BackendService{}, nil
+	return &compute.BackendService{
+		Backends: []*compute.Backend{
+			{
+				Group: fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/zone1/instanceGroups/CLUSTERID-master-zone1", project),
+			},
+		},
+	}, nil
 }

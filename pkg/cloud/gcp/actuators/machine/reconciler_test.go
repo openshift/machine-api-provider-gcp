@@ -653,10 +653,25 @@ func TestRegisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
 	}
 	emptyInstanceListScope := okScope
 	emptyInstanceListScope.projectID = computeservice.EmptyInstanceList
+
 	groupDoesNotExistScope := okScope
 	groupDoesNotExistScope.projectID = computeservice.GroupDoesNotExist
+
+	addGroupSuccessfully := okScope
+	addGroupSuccessfully.projectID = computeservice.AddGroupSuccessfully
+
+	errRegisteringNewInstanceGroup := okScope
+	errRegisteringNewInstanceGroup.projectID = computeservice.ErrRegisteringNewInstanceGroup
+
+	groupNotInBackendService := okScope
+	groupNotInBackendService.projectID = computeservice.PatchBackendService
+
+	errNewGroupToBackendService := okScope
+	errNewGroupToBackendService.projectID = computeservice.ErrPatchingBackendService
+
 	errRegisteringInstanceScope := okScope
 	errRegisteringInstanceScope.projectID = computeservice.ErrRegisteringInstance
+
 	tCases := []struct {
 		expectedErr bool
 		errString   string
@@ -675,8 +690,31 @@ func TestRegisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
 		{
 			// Group doesn't exist
 			expectedErr: true,
-			errString:   "failed to fetch running instances in instance group CLUSTERID-master-zone1: instanceGroupsListInstances request failed: googleapi: got HTTP response code 404 with body",
 			scope:       &groupDoesNotExistScope,
+		},
+		{
+			// Group doesn't exist - we register it
+			expectedErr: false,
+			scope:       &addGroupSuccessfully,
+		},
+		{
+			// Error registering new instanceGroup
+			expectedErr: true,
+			errString:   "failed to register new instanceGroup",
+			scope:       &errRegisteringNewInstanceGroup,
+		},
+		{
+			// Error adding instanceGroup to backend service
+			expectedErr: true,
+			errString: "failed to update the backend service with new instance group " +
+				"CLUSTERID-master-zone1: backendServiceGet request failed: failed to get " +
+				"the regional backend service",
+			scope: &errNewGroupToBackendService,
+		},
+		{
+			// Instance group not in backend service - we patch it
+			expectedErr: false,
+			scope:       &groupNotInBackendService,
 		},
 		{
 			// Error registering instance
@@ -774,141 +812,6 @@ func TestUnregisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
 		} else {
 			if err != nil {
 				t.Errorf("unexpected error from unregisterInstanceFromControlPlaneInstanceGroup: %v", err)
-			}
-		}
-	}
-}
-
-func TestCreatingNewInstanceGroup(t *testing.T) {
-	_, mockComputeService := computeservice.NewComputeServiceMock()
-	projectID := "testProject"
-	instanceName := "testInstance"
-
-	okScope := machineScope{
-		machine: &machinev1.Machine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      instanceName,
-				Namespace: "",
-				Labels: map[string]string{
-					openshiftMachineRoleLabel:       masterMachineRole,
-					machinev1.MachineClusterIDLabel: "CLUSTERID",
-				},
-			},
-		},
-		coreClient: controllerfake.NewFakeClient(),
-		providerSpec: &machinev1.GCPMachineProviderSpec{
-			Zone: "zone1",
-		},
-		projectID: projectID,
-		providerStatus: &machinev1.GCPMachineProviderStatus{
-			InstanceState: pointer.String("PROVISIONING"),
-		},
-		computeService: mockComputeService,
-	}
-
-	groupDoesNotExistScope := okScope
-	groupDoesNotExistScope.projectID = computeservice.GroupDoesNotExist
-	ErrToRegisterGroup := okScope
-	ErrToRegisterGroup.projectID = computeservice.ErrRegisteringNewInstanceGroup
-
-	tCases := []struct {
-		expectedErr bool
-		errString   string
-		scope       *machineScope
-	}{
-		{
-			// Failed to register the instance group
-			expectedErr: true,
-			errString:   "instanceGroupInsert request failed: failed to register new instanceGroup",
-			scope:       &ErrToRegisterGroup,
-		},
-		{
-			// Group doesn't exist
-			expectedErr: false,
-			scope:       &groupDoesNotExistScope,
-		},
-	}
-
-	for _, tc := range tCases {
-		rec := newReconciler(tc.scope)
-		err := rec.registerNewInstanceGroup()
-		if tc.expectedErr {
-			if err == nil {
-				t.Errorf("expected error from registerNewInstanceGroup but got nil")
-			} else if !strings.Contains(err.Error(), tc.errString) {
-				t.Errorf("expected error from registerNewInstanceGroup to contain \"%v\" but got \"%v\"", tc.errString, err.Error())
-			}
-		} else {
-			if err != nil {
-				t.Errorf("unexpected error from registerNewInstanceGroup: %v", err)
-			}
-		}
-	}
-}
-
-func TestUpdateBackendServiceWithInstanceGroup(t *testing.T) {
-	_, mockComputeService := computeservice.NewComputeServiceMock()
-	projectID := "testProject"
-	instanceName := "testInstance"
-
-	okScope := machineScope{
-		machine: &machinev1.Machine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      instanceName,
-				Namespace: "",
-				Labels: map[string]string{
-					openshiftMachineRoleLabel:       masterMachineRole,
-					machinev1.MachineClusterIDLabel: "CLUSTERID",
-				},
-			},
-		},
-		coreClient: controllerfake.NewFakeClient(),
-		providerSpec: &machinev1.GCPMachineProviderSpec{
-			Zone: "zone1",
-		},
-		projectID: projectID,
-		providerStatus: &machinev1.GCPMachineProviderStatus{
-			InstanceState: pointer.String("PROVISIONING"),
-		},
-		computeService: mockComputeService,
-	}
-
-	ErrToGetBackendService := okScope
-	ErrToGetBackendService.projectID = computeservice.ErrGettingBackendService
-	ErrPatchingBackendService := okScope
-	ErrPatchingBackendService.projectID = computeservice.ErrPatchingBackendService
-
-	tCases := []struct {
-		expectedErr bool
-		errString   string
-		scope       *machineScope
-	}{
-		// Failed to get the backend service
-		{
-			expectedErr: true,
-			errString:   "backendServiceGet request failed: failed to get the regional backend service",
-			scope:       &ErrToGetBackendService,
-		},
-		// Failed to assign the new instance group to backend service
-		{
-			expectedErr: true,
-			errString:   "addInstanceGroupToBackendService request failed: failed to add new instanceGroup to backend service",
-			scope:       &ErrPatchingBackendService,
-		},
-	}
-
-	for _, tc := range tCases {
-		rec := newReconciler(tc.scope)
-		err := rec.updateBackendServiceWithInstanceGroup()
-		if tc.expectedErr {
-			if err == nil {
-				t.Errorf("expected error from registerNewInstanceGroup but got nil")
-			} else if !strings.Contains(err.Error(), tc.errString) {
-				t.Errorf("expected error from registerNewInstanceGroup to contain \"%v\" but got \"%v\"", tc.errString, err.Error())
-			}
-		} else {
-			if err != nil {
-				t.Errorf("unexpected error from registerNewInstanceGroup: %v", err)
 			}
 		}
 	}
