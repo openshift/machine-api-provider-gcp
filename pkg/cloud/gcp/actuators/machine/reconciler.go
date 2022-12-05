@@ -577,17 +577,24 @@ func (r *Reconciler) processTargetPools(desired bool, poolFunc poolProcessor) er
 	return nil
 }
 
+// ensureInstanceGroup ensures that the instance group exists.
+// If the instance group doesn't exist, we try and register it and also assign
+// it to a backend service correctly.
 func (r *Reconciler) ensureInstanceGroup(instanceGroupName string) error {
-	if err := r.checkInstanceGroupExists(instanceGroupName); err != nil {
+	// Get an instance group so we can check that it does in fact exist
+	_, err := r.computeService.InstanceGroupGet(r.projectID, r.providerSpec.Zone, instanceGroupName)
+	if isNotFoundError(err) {
 		// Handle the creation of a new instance group
 		if err := r.registerNewInstanceGroup(); err != nil {
 			return fmt.Errorf("failed to register the new instance group named %s: %v", instanceGroupName, err)
 		}
+	} else if err != nil {
+		return fmt.Errorf("instanceGroupGet request failed: %v", err)
 	}
 
 	registered, err := r.checkRegistrationOfBackend()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to retrieve the backend service: %v", err)
 	}
 
 	if !registered {
@@ -597,15 +604,6 @@ func (r *Reconciler) ensureInstanceGroup(instanceGroupName string) error {
 		}
 	}
 
-	return nil
-}
-
-// checkInstanceGroupExists checks whether an instancegroup exists.
-func (r *Reconciler) checkInstanceGroupExists(instanceGroupName string) error {
-	_, err := r.computeService.InstanceGroupGet(r.projectID, r.providerSpec.Zone, instanceGroupName)
-	if err != nil {
-		return fmt.Errorf("instanceGroupGet request failed: %v", err)
-	}
 	return nil
 }
 
@@ -674,7 +672,7 @@ func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
 	instanceGroupName := r.controlPlaneGroupName()
 
 	if err := r.ensureInstanceGroup(instanceGroupName); err != nil {
-		return fmt.Errorf("failed to ... : %v", err)
+		return fmt.Errorf("failed to ensure that instance group %s is a proper instance group: %v", instanceGroupName, err)
 	}
 
 	instanceSets, err := r.fetchRunningInstancesInInstanceGroup(r.projectID, r.providerSpec.Zone, instanceGroupName)

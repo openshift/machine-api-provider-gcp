@@ -660,8 +660,8 @@ func TestRegisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
 	addGroupSuccessfully := okScope
 	addGroupSuccessfully.projectID = computeservice.AddGroupSuccessfully
 
-	errRegisteringNewInstanceGroup := okScope
-	errRegisteringNewInstanceGroup.projectID = computeservice.ErrRegisteringNewInstanceGroup
+	errFailGroupGet := okScope
+	errFailGroupGet.projectID = computeservice.ErrFailGroupGet
 
 	groupNotInBackendService := okScope
 	groupNotInBackendService.projectID = computeservice.PatchBackendService
@@ -698,17 +698,18 @@ func TestRegisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
 			scope:       &addGroupSuccessfully,
 		},
 		{
-			// Error registering new instanceGroup
+			// Error getting an instance group
 			expectedErr: true,
-			errString:   "failed to register new instanceGroup",
-			scope:       &errRegisteringNewInstanceGroup,
+			errString:   "instanceGroupGet request failed",
+			scope:       &errFailGroupGet,
 		},
 		{
 			// Error adding instanceGroup to backend service
 			expectedErr: true,
-			errString: "failed to update the backend service with new instance group " +
-				"CLUSTERID-master-zone1: backendServiceGet request failed: failed to get " +
-				"the regional backend service",
+			errString: "failed to ensure that instance group " +
+				"CLUSTERID-master-zone1 is a proper instance group: " +
+				"failed to retrieve the backend service: backendServiceGet " +
+				"request failed: failed to get the regional backend service",
 			scope: &errNewGroupToBackendService,
 		},
 		{

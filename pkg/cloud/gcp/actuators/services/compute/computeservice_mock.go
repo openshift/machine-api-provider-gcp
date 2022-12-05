@@ -19,6 +19,8 @@ const (
 	ErrRegisteringNewInstanceGroup = "errRegisteringNewInstanceGroup"
 	ErrPatchingBackendService      = "errPatchingBackendService"
 	ErrGettingBackendService       = "errGettingBackendService"
+	ErrFailGroupGet                = "errFailGroupGet"
+	ErrGroupNotFound               = "errGroupNotFound"
 	PatchBackendService            = "patchBackendService"
 	AddGroupSuccessfully           = "addGroupSuccessfully"
 )
@@ -215,14 +217,16 @@ func (c *GCPComputeServiceMock) InstanceGroupInsert(project string, zone string,
 }
 
 func (c *GCPComputeServiceMock) InstanceGroupGet(project string, zone string, instanceGroupName string) (*compute.InstanceGroup, error) {
-	if project == ErrRegisteringNewInstanceGroup {
-		return nil, errors.New("failed to get the instanceGroup")
+	if project == ErrFailGroupGet {
+		return nil, errors.New("instanceGroupGet request failed")
 	}
-	return &compute.InstanceGroup{}, nil
+	if project == ErrGroupNotFound {
+		return nil, errors.New("instanceGroupGet request failed")
+	}
+	return nil, nil
 }
 
 func (c *GCPComputeServiceMock) AddInstanceGroupToBackendService(project string, region string, backendServiceName string, backendService *compute.BackendService) (*compute.Operation, error) {
-	fmt.Printf("I am here and this is the project %s\n\n", project)
 	if project == ErrPatchingBackendService {
 		return nil, errors.New("failed to add new instanceGroup to backend service")
 	}
