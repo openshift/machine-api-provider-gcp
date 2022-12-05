@@ -577,8 +577,31 @@ func (r *Reconciler) processTargetPools(desired bool, poolFunc poolProcessor) er
 	return nil
 }
 
-// ensureInstanceGroupExists checks whether an instancegroup exists.
-func (r *Reconciler) ensureInstanceGroupExists(instanceGroupName string) error {
+func (r *Reconciler) ensureInstanceGroup(instanceGroupName string) error {
+	if err := r.checkInstanceGroupExists(instanceGroupName); err != nil {
+		// Handle the creation of a new instance group
+		if err := r.registerNewInstanceGroup(); err != nil {
+			return fmt.Errorf("failed to register the new instance group named %s: %v", instanceGroupName, err)
+		}
+	}
+
+	registered, err := r.checkRegistrationOfBackend()
+	if err != nil {
+		return err
+	}
+
+	if !registered {
+		// Handle the registration of backend to backend service
+		if err := r.updateBackendServiceWithInstanceGroup(); err != nil {
+			return fmt.Errorf("failed to update the backend service with new instance group %s: %v", instanceGroupName, err)
+		}
+	}
+
+	return nil
+}
+
+// checkInstanceGroupExists checks whether an instancegroup exists.
+func (r *Reconciler) checkInstanceGroupExists(instanceGroupName string) error {
 	_, err := r.computeService.InstanceGroupGet(r.projectID, r.providerSpec.Zone, instanceGroupName)
 	if err != nil {
 		return fmt.Errorf("instanceGroupGet request failed: %v", err)
@@ -586,20 +609,63 @@ func (r *Reconciler) ensureInstanceGroupExists(instanceGroupName string) error {
 	return nil
 }
 
+// registerNewInstanceGroup registers an instance group when there is an instance
+// that is using that unkown instance group.
+func (r *Reconciler) registerNewInstanceGroup() error {
+	_, err := r.computeService.InstanceGroupInsert(r.projectID, r.providerSpec.Zone, &compute.InstanceGroup{
+		Name:       r.controlPlaneGroupName(),
+		Region:     r.providerSpec.Region,
+		Zone:       r.providerSpec.Zone,
+		Network:    r.instanceGroupNetworkName(),
+		Subnetwork: r.instanceGroupSubNetworkName(),
+	})
+	if err != nil {
+		return fmt.Errorf("instanceGroupInsert request failed: %v", err)
+	}
+
+	return nil
+}
+
 // ensureInstanceGroupInBackendService checks whether an instancegroup is assigned to a backend service.
-func (r *Reconciler) ensureInstanceGroupInBackendService() error {
+func (r *Reconciler) checkRegistrationOfBackend() (bool, error) {
 	backendService, err := r.computeService.BackendServiceGet(r.projectID, r.providerSpec.Region, r.backendServiceName())
 	if err != nil {
-		return fmt.Errorf("backendServiceGet request failed: %v", err)
+		return false, fmt.Errorf("backendServiceGet request failed: %v", err)
 	}
 
 	for _, backend := range backendService.Backends {
 		if backend.Group == r.FQDNInstanceGroup() {
-			return nil
+			return true, nil
 		}
 	}
 
-	return fmt.Errorf("couldn't find the instance group %s in a backend service", r.FQDNInstanceGroup())
+	// We didn't find the backend, but will try
+	// and patch it to the backend service
+	return false, nil
+}
+
+// updateBackendServiceWithInstanceGroup patches a backend service the newly created instance group.
+func (r *Reconciler) updateBackendServiceWithInstanceGroup() error {
+	backendServiceName := r.backendServiceName()
+
+	backendService, err := r.computeService.BackendServiceGet(r.projectID, r.providerSpec.Region, backendServiceName)
+	if err != nil {
+		return fmt.Errorf("backendServiceGet request failed: %v", err)
+	}
+
+	// Create backend that serves the backend service
+	backend := &compute.Backend{
+		BalancingMode: "CONNECTION",
+		Group:         r.FQDNInstanceGroup(),
+	}
+	backendService.Backends = append(backendService.Backends, backend)
+
+	_, err = r.computeService.AddInstanceGroupToBackendService(r.projectID, r.providerSpec.Region, backendServiceName, backendService)
+	if err != nil {
+		return fmt.Errorf("addInstanceGroupToBackendService request failed: %v", err)
+	}
+
+	return nil
 }
 
 // registerInstanceToControlPlaneInstanceGroup ensures that the instance is assigned to the control plane instance group of its zone.
@@ -607,16 +673,8 @@ func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
 	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
 	instanceGroupName := r.controlPlaneGroupName()
 
-	if err := r.ensureInstanceGroupExists(instanceGroupName); err != nil {
-		if errRegister := r.registerNewInstanceGroup(); errRegister != nil {
-			return fmt.Errorf("failed to register the new instance group named %s: %v", instanceGroupName, errRegister)
-		}
-	}
-
-	if err := r.ensureInstanceGroupInBackendService(); err != nil {
-		if errPatch := r.updateBackendServiceWithInstanceGroup(); err != nil {
-			return fmt.Errorf("failed to update the backend service with new instance group %s: %v", instanceGroupName, errPatch)
-		}
+	if err := r.ensureInstanceGroup(instanceGroupName); err != nil {
+		return fmt.Errorf("failed to ... : %v", err)
 	}
 
 	instanceSets, err := r.fetchRunningInstancesInInstanceGroup(r.projectID, r.providerSpec.Zone, instanceGroupName)
@@ -672,7 +730,7 @@ func (r *Reconciler) fetchRunningInstancesInInstanceGroup(projectID string, zone
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("instanceGroupsListInstances request failed: %v, registered the new instance group named %v successfully", err, instaceGroup)
+		return nil, fmt.Errorf("instanceGroupsListInstances request failed: %v", err)
 	}
 
 	instanceSets := sets.NewString()
@@ -681,47 +739,6 @@ func (r *Reconciler) fetchRunningInstancesInInstanceGroup(projectID string, zone
 	}
 
 	return instanceSets, nil
-}
-
-// registerNewInstanceGroup registers an instance group when there is an instance
-// that is using that unkown instance group.
-func (r *Reconciler) registerNewInstanceGroup() error {
-	_, err := r.computeService.InstanceGroupInsert(r.projectID, r.providerSpec.Zone, &compute.InstanceGroup{
-		Name:       r.controlPlaneGroupName(),
-		Region:     r.providerSpec.Region,
-		Zone:       r.providerSpec.Zone,
-		Network:    r.instanceGroupNetworkName(),
-		Subnetwork: r.instanceGroupSubNetworkName(),
-	})
-	if err != nil {
-		return fmt.Errorf("instanceGroupInsert request failed: %v", err)
-	}
-
-	return nil
-}
-
-// updateBackendServiceWithInstanceGroup patches a backend service the newly created instance group.
-func (r *Reconciler) updateBackendServiceWithInstanceGroup() error {
-	backendServiceName := r.backendServiceName()
-
-	backendService, err := r.computeService.BackendServiceGet(r.projectID, r.providerSpec.Region, backendServiceName)
-	if err != nil {
-		return fmt.Errorf("backendServiceGet request failed: %v", err)
-	}
-
-	// Create backend that serves the backend service
-	backend := &compute.Backend{
-		BalancingMode: "CONNECTION",
-		Group:         r.FQDNInstanceGroup(),
-	}
-	backendService.Backends = append(backendService.Backends, backend)
-
-	_, err = r.computeService.AddInstanceGroupToBackendService(r.projectID, r.providerSpec.Region, backendServiceName, backendService)
-	if err != nil {
-		return fmt.Errorf("addInstanceGroupToBackendService request failed: %v", err)
-	}
-
-	return nil
 }
 
 // FQDNInstanceGroup generates a FQDN for our instance group.
