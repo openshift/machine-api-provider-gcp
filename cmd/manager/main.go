@@ -84,12 +84,17 @@ func main() {
 
 	cfg := config.GetConfigOrDie()
 
+	// Override the default 10 hour sync period so that we pick up external changes
+	// to the VMs within a reasonable time frame.
+	syncPeriod := 10 * time.Minute
+
 	opts := manager.Options{
 		LeaderElection:          *leaderElect,
 		LeaderElectionNamespace: *leaderElectResourceNamespace,
 		LeaderElectionID:        "cluster-api-provider-gcp-leader",
 		LeaseDuration:           leaderElectLeaseDuration,
 		HealthProbeBindAddress:  *healthAddr,
+		SyncPeriod:              &syncPeriod,
 		MetricsBindAddress:      *metricsAddress,
 		// Slow the default retry and renew election rate to reduce etcd writes at idle: BZ 1858400
 		RetryPeriod:   &retryPeriod,
