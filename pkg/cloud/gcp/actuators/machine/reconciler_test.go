@@ -699,10 +699,25 @@ func TestRegisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
 	}
 	emptyInstanceListScope := okScope
 	emptyInstanceListScope.projectID = computeservice.EmptyInstanceList
+
 	groupDoesNotExistScope := okScope
 	groupDoesNotExistScope.projectID = computeservice.GroupDoesNotExist
+
+	addGroupSuccessfully := okScope
+	addGroupSuccessfully.projectID = computeservice.AddGroupSuccessfully
+
+	errFailGroupGet := okScope
+	errFailGroupGet.projectID = computeservice.ErrFailGroupGet
+
+	groupNotInBackendService := okScope
+	groupNotInBackendService.projectID = computeservice.PatchBackendService
+
+	errNewGroupToBackendService := okScope
+	errNewGroupToBackendService.projectID = computeservice.ErrPatchingBackendService
+
 	errRegisteringInstanceScope := okScope
 	errRegisteringInstanceScope.projectID = computeservice.ErrRegisteringInstance
+
 	tCases := []struct {
 		expectedErr bool
 		errString   string
@@ -721,8 +736,32 @@ func TestRegisterInstanceToControlPlaneInstanceGroup(t *testing.T) {
 		{
 			// Group doesn't exist
 			expectedErr: true,
-			errString:   "failed to fetch running instances in instance group CLUSTERID-master-zone1: instanceGroupsListInstances request failed: googleapi: got HTTP response code 404 with body",
 			scope:       &groupDoesNotExistScope,
+		},
+		{
+			// Group doesn't exist - we register it
+			expectedErr: false,
+			scope:       &addGroupSuccessfully,
+		},
+		{
+			// Error getting an instance group
+			expectedErr: true,
+			errString:   "instanceGroupGet request failed",
+			scope:       &errFailGroupGet,
+		},
+		{
+			// Error adding instanceGroup to backend service
+			expectedErr: true,
+			errString: "failed to ensure that instance group " +
+				"CLUSTERID-master-zone1 is a proper instance group: " +
+				"failed to retrieve the backend service: backendServiceGet " +
+				"request failed: failed to get the regional backend service",
+			scope: &errNewGroupToBackendService,
+		},
+		{
+			// Instance group not in backend service - we patch it
+			expectedErr: false,
+			scope:       &groupNotInBackendService,
 		},
 		{
 			// Error registering instance

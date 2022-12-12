@@ -3,18 +3,26 @@ package computeservice
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	compute "google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 )
 
 const (
-	NoMachinesInPool         = "NoMachinesInPool"
-	WithMachineInPool        = "WithMachineInPool"
-	GroupDoesNotExist        = "groupDoesNotExist"
-	EmptyInstanceList        = "emptyInstanceList"
-	ErrUnregisteringInstance = "errUnregisteringInstance"
-	ErrRegisteringInstance   = "errRegisteringInstance"
+	NoMachinesInPool               = "NoMachinesInPool"
+	WithMachineInPool              = "WithMachineInPool"
+	GroupDoesNotExist              = "groupDoesNotExist"
+	EmptyInstanceList              = "emptyInstanceList"
+	ErrUnregisteringInstance       = "errUnregisteringInstance"
+	ErrRegisteringInstance         = "errRegisteringInstance"
+	ErrRegisteringNewInstanceGroup = "errRegisteringNewInstanceGroup"
+	ErrPatchingBackendService      = "errPatchingBackendService"
+	ErrGettingBackendService       = "errGettingBackendService"
+	ErrFailGroupGet                = "errFailGroupGet"
+	ErrGroupNotFound               = "errGroupNotFound"
+	PatchBackendService            = "patchBackendService"
+	AddGroupSuccessfully           = "addGroupSuccessfully"
 )
 
 type GCPComputeServiceMock struct {
@@ -192,5 +200,50 @@ func (c *GCPComputeServiceMock) InstanceGroupsRemoveInstances(project string, zo
 	}
 	return &compute.Operation{
 		Status: "DONE",
+	}, nil
+}
+
+func (c *GCPComputeServiceMock) InstanceGroupInsert(project string, zone string, instanceGroup *compute.InstanceGroup) (*compute.Operation, error) {
+	if project == AddGroupSuccessfully {
+		return &compute.Operation{
+			Status: "DONE",
+		}, nil
+
+	}
+	if project == ErrRegisteringNewInstanceGroup {
+		return nil, errors.New("failed to register new instanceGroup")
+	}
+	return nil, nil
+}
+
+func (c *GCPComputeServiceMock) InstanceGroupGet(project string, zone string, instanceGroupName string) (*compute.InstanceGroup, error) {
+	if project == ErrFailGroupGet {
+		return nil, errors.New("instanceGroupGet request failed")
+	}
+	if project == ErrGroupNotFound {
+		return nil, errors.New("instanceGroupGet request failed")
+	}
+	return nil, nil
+}
+
+func (c *GCPComputeServiceMock) AddInstanceGroupToBackendService(project string, region string, backendServiceName string, backendService *compute.BackendService) (*compute.Operation, error) {
+	if project == ErrPatchingBackendService {
+		return nil, errors.New("failed to add new instanceGroup to backend service")
+	}
+	return &compute.Operation{
+		Status: "DONE",
+	}, nil
+}
+
+func (c *GCPComputeServiceMock) BackendServiceGet(project string, region string, backendServiceName string) (*compute.BackendService, error) {
+	if project == ErrGettingBackendService || project == ErrPatchingBackendService {
+		return nil, errors.New("failed to get the regional backend service")
+	}
+	return &compute.BackendService{
+		Backends: []*compute.Backend{
+			{
+				Group: fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/zone1/instanceGroups/CLUSTERID-master-zone1", project),
+			},
+		},
 	}, nil
 }
