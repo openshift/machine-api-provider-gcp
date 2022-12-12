@@ -5,13 +5,16 @@ package machine
 // when scope is closed, it will persist to etcd the given machine spec and machine status (if modified)
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	machinev1 "github.com/openshift/api/machine/v1beta1"
+	machineErr "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -80,6 +83,19 @@ func (a *Actuator) Create(ctx context.Context, machine *machinev1.Machine) error
 	return scope.Close()
 }
 
+// isInvalidMachineConfigurationError checks whether an error we return
+// is of type machineError with reason being invalid configuration of a machine.
+func isInvalidMachineConfigurationError(err error) bool {
+	var machineError *machineErr.MachineError
+	if errors.As(err, &machineError) {
+		if machineError.Reason == machinev1.InvalidConfigurationMachineError {
+			klog.Infof("Actuator returned invalid configuration error: %v", machineError)
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool, error) {
 	klog.Infof("%s: Checking if machine exists", machine.Name)
 	scope, err := newMachineScope(machineScopeParams{
@@ -96,7 +112,21 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 	// When create()/update() try to store machineSpec/status this might result in
 	// "Operation cannot be fulfilled; the object has been modified; please apply your changes to the latest version and try again."
 	// Therefore we don't close the scope here and we only store spec/status atomically either in create()/update()"
-	return newReconciler(scope).exists()
+	_, exists, err := newReconciler(scope).exists()
+	if isInvalidMachineConfigurationError(err) {
+		// If the machine has, e.g. invalid zone, and it doesn't have a phase set yet,
+		// we have to make sure the phase goes as "Failed".
+		if machine.Status.Phase == nil {
+			machine.Status.Phase = pointer.String("Failed")
+		}
+		// If the machine has, e.g. invalid zone, and we delete the invalid machinset,
+		// we want to set the machine to "Deleting" phase and return nil as error.
+		// We need the error to be nil so we can successfully delete the invalid machine.
+		if *machine.Status.Phase == "Deleting" {
+			return false, nil
+		}
+	}
+	return exists, err
 }
 
 func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error {

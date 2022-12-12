@@ -480,9 +480,9 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 }
 
 // Returns true if machine exists.
-func (r *Reconciler) exists() (bool, error) {
+func (r *Reconciler) exists() (bool, bool, error) {
 	if err := validateMachine(*r.machine, *r.providerSpec); err != nil {
-		return false, fmt.Errorf("failed validating machine provider spec: %v", err)
+		return false, false, fmt.Errorf("failed validating machine provider spec: %v", err)
 	}
 	zone := r.providerSpec.Zone
 	// Need to verify that our project/zone exists before checking machine, as
@@ -492,20 +492,20 @@ func (r *Reconciler) exists() (bool, error) {
 			// this error type bubbles back up to the machine-controller to allow
 			// us to delete machines that were never properly created due to
 			// invalid zone.
-			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Machine does not exist", r.machine.Name))
+			return true, false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
 		}
-		return false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
+		return false, false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
 	}
 
 	instance, err := r.computeService.InstancesGet(r.projectID, zone, r.machine.Name)
 	if instance != nil && err == nil {
-		return true, nil
+		return false, true, nil
 	}
 	if isNotFoundError(err) {
 		klog.Infof("%s: Machine does not exist", r.machine.Name)
-		return false, nil
+		return false, false, nil
 	}
-	return false, fmt.Errorf("error getting running instances: %v", err)
+	return false, false, fmt.Errorf("error getting running instances: %v", err)
 }
 
 // Returns true if machine exists.
@@ -522,11 +522,15 @@ func (r *Reconciler) delete() error {
 		}
 	}
 
-	exists, err := r.exists()
-	if err != nil {
+	invalidZone, exists, err := r.exists()
+	if err != nil && invalidZone {
+		// We know that the machine does not exist in this case so we can skip it.
+		return nil
+	}
+	if err != nil && !invalidZone {
 		return err
 	}
-	if !exists {
+	if !exists && !invalidZone {
 		klog.Infof("%s: Machine not found during delete, skipping", r.machine.Name)
 		return nil
 	}
@@ -717,6 +721,14 @@ func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
 func (r *Reconciler) unregisterInstanceFromControlPlaneInstanceGroup() error {
 	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
 	instanceGroupName := r.controlPlaneGroupName()
+
+	// If the machine is not created properly, e.g. with invalid zone, we have to make sure to find that machine.
+	_, err := r.computeService.InstanceGroupGet(r.projectID, r.providerSpec.Zone, instanceGroupName)
+	if isNotFoundError(err) {
+		return err
+	} else if err != nil {
+		return fmt.Errorf("InstanceGroupGet request failed: %v", err)
+	}
 
 	instanceSets, err := r.fetchRunningInstancesInInstanceGroup(r.projectID, r.providerSpec.Zone, instanceGroupName)
 	if err != nil {

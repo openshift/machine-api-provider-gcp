@@ -530,7 +530,7 @@ func TestExists(t *testing.T) {
 		computeService: mockComputeService,
 	}
 	reconciler := newReconciler(&machineScope)
-	exists, err := reconciler.exists()
+	_, exists, err := reconciler.exists()
 	if err != nil || exists != true {
 		t.Errorf("reconciler was not expected to return error: %v", err)
 	}
