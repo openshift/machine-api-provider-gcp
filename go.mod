@@ -109,3 +109,5 @@ require (
 	sigs.k8s.io/kustomize/kyaml v0.13.9 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
+
+replace github.com/openshift/api => github.com/eranco74/api v0.0.0-20221212183125-bd7db99c2ec0
