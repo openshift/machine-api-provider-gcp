@@ -184,6 +184,22 @@ func (r *Reconciler) create() error {
 		instance.Scheduling.AutomaticRestart = automaticRestart
 	}
 
+	shieldedInstanceConfig := compute.ShieldedInstanceConfig{
+		EnableSecureBoot:          false,
+		EnableVtpm:                true,
+		EnableIntegrityMonitoring: true,
+	}
+	if r.providerSpec.ShieldedInstanceConfig.SecureBoot == machinev1.SecureBootPolicyEnabled {
+		shieldedInstanceConfig.EnableSecureBoot = true
+	}
+	if r.providerSpec.ShieldedInstanceConfig.VirtualizedTrustedPlatformModule == machinev1.VirtualizedTrustedPlatformModulePolicyDisabled {
+		shieldedInstanceConfig.EnableVtpm = false
+	}
+	if r.providerSpec.ShieldedInstanceConfig.IntegrityMonitoring == machinev1.IntegrityMonitoringPolicyDisabled {
+		shieldedInstanceConfig.EnableIntegrityMonitoring = false
+	}
+	instance.ShieldedInstanceConfig = &shieldedInstanceConfig
+
 	var guestAccelerators = []*compute.AcceleratorConfig{}
 
 	if l := len(r.providerSpec.GPUs); l == 1 {

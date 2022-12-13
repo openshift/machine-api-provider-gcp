@@ -24,7 +24,7 @@ var (
 			},
 		},
 	}
-	expectedRawForProviderSpec = `{"metadata":{"creationTimestamp":null},"userDataSecret":{"name":"myUserData"},"canIPForward":true,"deletionProtection":false,"networkInterfaces":[{"subnetwork":"my-subnet"}],"serviceAccounts":null,"machineType":"n1-standard-1","region":"us-east1","zone":"us-east1-b"}`
+	expectedRawForProviderSpec = `{"metadata":{"creationTimestamp":null},"userDataSecret":{"name":"myUserData"},"canIPForward":true,"deletionProtection":false,"networkInterfaces":[{"subnetwork":"my-subnet"}],"serviceAccounts":null,"machineType":"n1-standard-1","region":"us-east1","zone":"us-east1-b","shieldedInstanceConfig":{}}`
 
 	instanceID             = "my-instance-id"
 	instanceState          = "RUNNING"
