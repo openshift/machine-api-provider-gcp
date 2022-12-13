@@ -492,6 +492,12 @@ func (r *Reconciler) exists() (bool, bool, error) {
 			// this error type bubbles back up to the machine-controller to allow
 			// us to delete machines that were never properly created due to
 			// invalid zone.
+
+			// If the machine has a node assigned, we know that it actually exists,
+			// but it also has an invalid configuration.
+			if r.machine.Status.NodeRef != nil {
+				return true, true, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
+			}
 			return true, false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
 		}
 		return false, false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
@@ -522,15 +528,14 @@ func (r *Reconciler) delete() error {
 		}
 	}
 
-	invalidZone, exists, err := r.exists()
-	if err != nil && invalidZone {
-		// We know that the machine does not exist in this case so we can skip it.
-		return nil
+	invalidMachineConfiguration, exists, err := r.exists()
+	if exists && invalidMachineConfiguration {
+		return fmt.Errorf("the machine %s has invalid configuration, but already exists, make the configuration of the machine valid for the deletion to be successful", r.machine.Name)
 	}
-	if err != nil && !invalidZone {
+	if err != nil && !invalidMachineConfiguration {
 		return err
 	}
-	if !exists && !invalidZone {
+	if !exists {
 		klog.Infof("%s: Machine not found during delete, skipping", r.machine.Name)
 		return nil
 	}
