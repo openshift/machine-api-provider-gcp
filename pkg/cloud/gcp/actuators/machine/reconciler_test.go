@@ -376,6 +376,65 @@ func TestCreate(t *testing.T) {
 			},
 			expectedError: errors.New("failed to determine restart policy: unrecognized restart policy: SometimesMaybe"),
 		},
+		{
+			name: "shieldedInstanceConfig not set, verify default behavior",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:      "test-region",
+				Zone:        "test-zone",
+				MachineType: "n1-test-machineType",
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.ShieldedInstanceConfig.EnableSecureBoot != false {
+					t.Errorf("Expected EnableSecureBoot to be false, Got: %t", instance.ShieldedInstanceConfig.EnableSecureBoot)
+				}
+				if instance.ShieldedInstanceConfig.EnableVtpm != true {
+					t.Errorf("Expected EnableVtpm to be true, Got: %t", instance.ShieldedInstanceConfig.EnableVtpm)
+				}
+				if instance.ShieldedInstanceConfig.EnableIntegrityMonitoring != true {
+					t.Errorf("Expected EnableIntegrityMonitoring to be true, Got: %t", instance.ShieldedInstanceConfig.EnableIntegrityMonitoring)
+				}
+			},
+		},
+		{
+			name: "shieldedInstanceConfig with SecureBoot enabled",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:                 "test-region",
+				Zone:                   "test-zone",
+				MachineType:            "n1-test-machineType",
+				ShieldedInstanceConfig: machinev1.GCPShieldedInstanceConfig{SecureBoot: machinev1.SecureBootPolicyEnabled},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.ShieldedInstanceConfig.EnableSecureBoot != true {
+					t.Errorf("Expected EnableSecureBoot to be true, Got: %t", instance.ShieldedInstanceConfig.EnableSecureBoot)
+				}
+				if instance.ShieldedInstanceConfig.EnableVtpm != true {
+					t.Errorf("Expected EnableVtpm to be true, Got: %t", instance.ShieldedInstanceConfig.EnableVtpm)
+				}
+				if instance.ShieldedInstanceConfig.EnableIntegrityMonitoring != true {
+					t.Errorf("Expected EnableIntegrityMonitoring to be true, Got: %t", instance.ShieldedInstanceConfig.EnableIntegrityMonitoring)
+				}
+			},
+		},
+		{
+			name: "shieldedInstanceConfig with vTPM disabled",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:                 "test-region",
+				Zone:                   "test-zone",
+				MachineType:            "n1-test-machineType",
+				ShieldedInstanceConfig: machinev1.GCPShieldedInstanceConfig{VirtualizedTrustedPlatformModule: machinev1.VirtualizedTrustedPlatformModulePolicyDisabled},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.ShieldedInstanceConfig.EnableSecureBoot != false {
+					t.Errorf("Expected EnableSecureBoot to be false, Got: %t", instance.ShieldedInstanceConfig.EnableSecureBoot)
+				}
+				if instance.ShieldedInstanceConfig.EnableVtpm != false {
+					t.Errorf("Expected EnableVtpm to be false, Got: %t", instance.ShieldedInstanceConfig.EnableVtpm)
+				}
+				if instance.ShieldedInstanceConfig.EnableIntegrityMonitoring != true {
+					t.Errorf("Expected EnableIntegrityMonitoring to be true, Got: %t", instance.ShieldedInstanceConfig.EnableIntegrityMonitoring)
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {

@@ -176,12 +176,29 @@ func (r *Reconciler) create() error {
 			Preemptible:       r.providerSpec.Preemptible,
 			OnHostMaintenance: string(r.providerSpec.OnHostMaintenance),
 		},
+		ShieldedInstanceConfig: &compute.ShieldedInstanceConfig{
+			EnableSecureBoot:          false,
+			EnableVtpm:                true,
+			EnableIntegrityMonitoring: true,
+		},
 	}
 
 	if automaticRestart, err := restartPolicyToBool(r.providerSpec.RestartPolicy, r.providerSpec.Preemptible); err != nil {
 		return machinecontroller.InvalidMachineConfiguration("failed to determine restart policy: %v", err)
 	} else {
 		instance.Scheduling.AutomaticRestart = automaticRestart
+	}
+
+	if r.providerSpec.ShieldedInstanceConfig.SecureBoot == machinev1.SecureBootPolicyEnabled {
+		instance.ShieldedInstanceConfig.EnableSecureBoot = true
+	}
+	if r.providerSpec.ShieldedInstanceConfig.VirtualizedTrustedPlatformModule == machinev1.VirtualizedTrustedPlatformModulePolicyDisabled {
+		instance.ShieldedInstanceConfig.EnableVtpm = false
+		instance.ShieldedInstanceConfig.ForceSendFields = append(instance.ShieldedInstanceConfig.ForceSendFields, "EnableVtpm")
+	}
+	if r.providerSpec.ShieldedInstanceConfig.IntegrityMonitoring == machinev1.IntegrityMonitoringPolicyDisabled {
+		instance.ShieldedInstanceConfig.EnableIntegrityMonitoring = false
+		instance.ShieldedInstanceConfig.ForceSendFields = append(instance.ShieldedInstanceConfig.ForceSendFields, "EnableIntegrityMonitoring")
 	}
 
 	var guestAccelerators = []*compute.AcceleratorConfig{}
