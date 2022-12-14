@@ -479,10 +479,21 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 	return nil
 }
 
+func isInvalidMachineConfigurationError(err error) bool {
+	var machineError *machinecontroller.MachineError
+	if errors.As(err, &machineError) {
+		if machineError.Reason == machinev1.InvalidConfigurationMachineError {
+			klog.Infof("Actuator returned invalid configuration error: %v", machineError)
+			return true
+		}
+	}
+	return false
+}
+
 // Returns true if machine exists.
-func (r *Reconciler) exists() (bool, bool, error) {
+func (r *Reconciler) exists() (bool, error) {
 	if err := validateMachine(*r.machine, *r.providerSpec); err != nil {
-		return false, false, fmt.Errorf("failed validating machine provider spec: %v", err)
+		return false, fmt.Errorf("failed validating machine provider spec: %v", err)
 	}
 	zone := r.providerSpec.Zone
 	// Need to verify that our project/zone exists before checking machine, as
@@ -495,23 +506,23 @@ func (r *Reconciler) exists() (bool, bool, error) {
 
 			// If the machine has a node assigned, we know that it actually exists,
 			// but it also has an invalid configuration.
-			if r.machine.Status.NodeRef != nil {
-				return true, true, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
+			if r.machine.Spec.ProviderID != nil {
+				return true, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
 			}
-			return true, false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
+			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
 		}
-		return false, false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
+		return false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
 	}
 
 	instance, err := r.computeService.InstancesGet(r.projectID, zone, r.machine.Name)
 	if instance != nil && err == nil {
-		return false, true, nil
+		return true, nil
 	}
 	if isNotFoundError(err) {
 		klog.Infof("%s: Machine does not exist", r.machine.Name)
-		return false, false, nil
+		return false, nil
 	}
-	return false, false, fmt.Errorf("error getting running instances: %v", err)
+	return false, fmt.Errorf("error getting running instances: %v", err)
 }
 
 // Returns true if machine exists.
@@ -521,6 +532,20 @@ func (r *Reconciler) delete() error {
 		return err
 	}
 
+	// Make sure that the machine exists.
+	// Also check that we have a machine with valid configuration.
+	exists, err := r.exists()
+	if exists && isInvalidMachineConfigurationError(err) {
+		return fmt.Errorf("the machine %s has invalid configuration, but already exists, make the configuration of the machine valid for the deletion to be successful", r.machine.Name)
+	}
+	if err != nil && !isInvalidMachineConfigurationError(err) {
+		return err
+	}
+	if !exists {
+		klog.Infof("%s: Machine not found during delete, skipping", r.machine.Name)
+		return nil
+	}
+
 	// Remove instance from instance group, if necessary
 	if r.machineScope.machine.Labels[openshiftMachineRoleLabel] == masterMachineRole {
 		if err := r.unregisterInstanceFromControlPlaneInstanceGroup(); err != nil {
@@ -528,17 +553,6 @@ func (r *Reconciler) delete() error {
 		}
 	}
 
-	invalidMachineConfiguration, exists, err := r.exists()
-	if exists && invalidMachineConfiguration {
-		return fmt.Errorf("the machine %s has invalid configuration, but already exists, make the configuration of the machine valid for the deletion to be successful", r.machine.Name)
-	}
-	if err != nil && !invalidMachineConfiguration {
-		return err
-	}
-	if !exists {
-		klog.Infof("%s: Machine not found during delete, skipping", r.machine.Name)
-		return nil
-	}
 	if _, err = r.computeService.InstancesDelete(string(r.machine.UID), r.projectID, r.providerSpec.Zone, r.machine.Name); err != nil {
 		metrics.RegisterFailedInstanceDelete(&metrics.MachineLabels{
 			Name:      r.machine.Name,
@@ -726,14 +740,6 @@ func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
 func (r *Reconciler) unregisterInstanceFromControlPlaneInstanceGroup() error {
 	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
 	instanceGroupName := r.controlPlaneGroupName()
-
-	// If the machine is not created properly, e.g. with invalid zone, we have to make sure to find that machine.
-	_, err := r.computeService.InstanceGroupGet(r.projectID, r.providerSpec.Zone, instanceGroupName)
-	if isNotFoundError(err) {
-		return err
-	} else if err != nil {
-		return fmt.Errorf("InstanceGroupGet request failed: %v", err)
-	}
 
 	instanceSets, err := r.fetchRunningInstancesInInstanceGroup(r.projectID, r.providerSpec.Zone, instanceGroupName)
 	if err != nil {

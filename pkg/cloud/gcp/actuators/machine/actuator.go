@@ -97,12 +97,15 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 	// When create()/update() try to store machineSpec/status this might result in
 	// "Operation cannot be fulfilled; the object has been modified; please apply your changes to the latest version and try again."
 	// Therefore we don't close the scope here and we only store spec/status atomically either in create()/update()"
-	invalidMachineConfiguration, exists, err := newReconciler(scope).exists()
-	if !invalidMachineConfiguration {
+	exists, err := newReconciler(scope).exists()
+	if !isInvalidMachineConfigurationError(err) {
 		return exists, err
 	}
 
 	if exists {
+		// If the machine configuration becomes invalid, we have to Fail the machine.
+		// Worker machines don't become Failed automatically and they would be stuck
+		// in Running phase with invalid configuration.
 		machine.Status.Phase = pointer.String("Failed")
 	} else {
 		// If the machine has, e.g. invalid zone, and it doesn't have a phase set yet,
