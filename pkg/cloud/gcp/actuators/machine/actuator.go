@@ -102,23 +102,19 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 		return exists, err
 	}
 
-	if exists {
-		// If the machine configuration becomes invalid, we have to Fail the machine.
-		// Worker machines don't become Failed automatically and they would be stuck
-		// in Running phase with invalid configuration.
+	// If the machine has, e.g. invalid zone, and it doesn't have a phase set yet,
+	// we have to make sure the phase goes as "Failed".
+	if machine.Status.Phase == nil {
 		machine.Status.Phase = pointer.String("Failed")
-	} else {
-		// If the machine has, e.g. invalid zone, and it doesn't have a phase set yet,
-		// we have to make sure the phase goes as "Failed".
-		if machine.Status.Phase == nil {
-			machine.Status.Phase = pointer.String("Failed")
-		}
-		// If the machine has, e.g. invalid zone, and we delete the invalid machinset,
-		// we want to set the machine to "Deleting" phase and return nil as error.
-		// We need the error to be nil so we can successfully delete the invalid machine.
-		if *machine.Status.Phase == "Deleting" {
-			return false, nil
-		}
+	}
+
+	// If the machine has, e.g. invalid zone, and we delete the invalid machinset,
+	// we want to set the machine to "Deleting" phase and return nil as error.
+	// We need the error to be nil so we can successfully delete the invalid machine.
+	// If the machine has a provider ID, then we believe something exists in the cloud.
+	// So we must not all the deletion if the provider ID is set.
+	if *machine.Status.Phase == "Deleting" && machine.Spec.ProviderID == nil {
+		return false, nil
 	}
 
 	return exists, err

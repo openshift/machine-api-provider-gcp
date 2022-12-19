@@ -504,11 +504,6 @@ func (r *Reconciler) exists() (bool, error) {
 			// us to delete machines that were never properly created due to
 			// invalid zone.
 
-			// If the machine has a node assigned, we know that it actually exists,
-			// but it also has an invalid configuration.
-			if r.machine.Spec.ProviderID != nil {
-				return true, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
-			}
 			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
 		}
 		return false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
@@ -535,7 +530,7 @@ func (r *Reconciler) delete() error {
 	// Make sure that the machine exists.
 	// Also check that we have a machine with valid configuration.
 	exists, err := r.exists()
-	if exists && isInvalidMachineConfigurationError(err) {
+	if r.machine.Spec.ProviderID != nil && isInvalidMachineConfigurationError(err) {
 		return fmt.Errorf("the machine %s has invalid configuration, but already exists, make the configuration of the machine valid for the deletion to be successful", r.machine.Name)
 	}
 	if err != nil && !isInvalidMachineConfigurationError(err) {
