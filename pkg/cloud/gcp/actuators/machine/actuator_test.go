@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	controllerfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -210,6 +211,24 @@ func TestActuatorEvents(t *testing.T) {
 			},
 			event: "Deleted machine test",
 		},
+		{
+			name: "Delete machine with invalid machine config",
+			operation: func(actuator *Actuator, machine *machinev1.Machine) {
+				machine.Spec.ProviderID = nil
+				machine.Status.Phase = pointer.String("Deleting")
+				actuator.Delete(context.Background(), machine)
+			},
+			event: "test: reconciler failed to Delete machine: requeue in: 20s",
+		},
+		{
+			name: "Create machine with no phase and providerID",
+			operation: func(actuator *Actuator, machine *machinev1.Machine) {
+				machine.Status.Phase = nil
+				machine.Spec.ProviderID = nil
+				actuator.Create(context.Background(), machine)
+			},
+			event: "Created Machine test",
+		},
 	}
 
 	for _, tc := range cases {
@@ -225,11 +244,11 @@ func TestActuatorEvents(t *testing.T) {
 					},
 				},
 				Spec: machinev1.MachineSpec{
+					ProviderID: pointer.String("testProviderID"),
 					ProviderSpec: machinev1.ProviderSpec{
 						Value: providerSpec,
 					},
 				}}
-
 			// Create the machine
 			gs.Expect(k8sClient.Create(context.Background(), machine)).To(Succeed())
 
