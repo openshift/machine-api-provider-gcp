@@ -479,6 +479,17 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 	return nil
 }
 
+func isInvalidMachineConfigurationError(err error) bool {
+	var machineError *machinecontroller.MachineError
+	if errors.As(err, &machineError) {
+		if machineError.Reason == machinev1.InvalidConfigurationMachineError {
+			klog.Infof("Actuator returned invalid configuration error: %v", machineError)
+			return true
+		}
+	}
+	return false
+}
+
 // Returns true if machine exists.
 func (r *Reconciler) exists() (bool, error) {
 	if err := validateMachine(*r.machine, *r.providerSpec); err != nil {
@@ -492,7 +503,8 @@ func (r *Reconciler) exists() (bool, error) {
 			// this error type bubbles back up to the machine-controller to allow
 			// us to delete machines that were never properly created due to
 			// invalid zone.
-			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Machine does not exist", r.machine.Name))
+
+			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
 		}
 		return false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
 	}
@@ -515,6 +527,20 @@ func (r *Reconciler) delete() error {
 		return err
 	}
 
+	// Make sure that the machine exists.
+	// Also check that we have a machine with valid configuration.
+	exists, err := r.exists()
+	if r.machine.Spec.ProviderID != nil && isInvalidMachineConfigurationError(err) {
+		return fmt.Errorf("the machine %s has invalid configuration, but already exists, make the configuration of the machine valid for the deletion to be successful", r.machine.Name)
+	}
+	if err != nil && !isInvalidMachineConfigurationError(err) {
+		return err
+	}
+	if !exists {
+		klog.Infof("%s: Machine not found during delete, skipping", r.machine.Name)
+		return nil
+	}
+
 	// Remove instance from instance group, if necessary
 	if r.machineScope.machine.Labels[openshiftMachineRoleLabel] == masterMachineRole {
 		if err := r.unregisterInstanceFromControlPlaneInstanceGroup(); err != nil {
@@ -522,14 +548,6 @@ func (r *Reconciler) delete() error {
 		}
 	}
 
-	exists, err := r.exists()
-	if err != nil {
-		return err
-	}
-	if !exists {
-		klog.Infof("%s: Machine not found during delete, skipping", r.machine.Name)
-		return nil
-	}
 	if _, err = r.computeService.InstancesDelete(string(r.machine.UID), r.projectID, r.providerSpec.Zone, r.machine.Name); err != nil {
 		metrics.RegisterFailedInstanceDelete(&metrics.MachineLabels{
 			Name:      r.machine.Name,

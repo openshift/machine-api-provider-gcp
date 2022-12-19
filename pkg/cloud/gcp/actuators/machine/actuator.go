@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -96,7 +97,27 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 	// When create()/update() try to store machineSpec/status this might result in
 	// "Operation cannot be fulfilled; the object has been modified; please apply your changes to the latest version and try again."
 	// Therefore we don't close the scope here and we only store spec/status atomically either in create()/update()"
-	return newReconciler(scope).exists()
+	exists, err := newReconciler(scope).exists()
+	if !isInvalidMachineConfigurationError(err) {
+		return exists, err
+	}
+
+	// If the machine has, e.g. invalid zone, and it doesn't have a phase set yet,
+	// we have to make sure the phase goes as "Failed".
+	if machine.Status.Phase == nil {
+		machine.Status.Phase = pointer.String("Failed")
+	}
+
+	// If the machine has, e.g. invalid zone, and we delete the invalid machinset,
+	// we want to set the machine to "Deleting" phase and return nil as error.
+	// We need the error to be nil so we can successfully delete the invalid machine.
+	// If the machine has a provider ID, then we believe something exists in the cloud.
+	// So we must not all the deletion if the provider ID is set.
+	if *machine.Status.Phase == "Deleting" && machine.Spec.ProviderID == nil {
+		return false, nil
+	}
+
+	return exists, err
 }
 
 func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error {
