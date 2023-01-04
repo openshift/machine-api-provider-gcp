@@ -11,10 +11,11 @@ import (
 
 var (
 	expectedProviderSpec = machinev1.GCPMachineProviderSpec{
-		Zone:         "us-east1-b",
-		MachineType:  "n1-standard-1",
-		Region:       "us-east1",
-		CanIPForward: true,
+		Zone:                   "us-east1-b",
+		MachineType:            "n1-standard-1",
+		Region:                 "us-east1",
+		CanIPForward:           true,
+		ShieldedInstanceConfig: machinev1.GCPShieldedInstanceConfig{SecureBoot: machinev1.SecureBootPolicyEnabled},
 		UserDataSecret: &corev1.LocalObjectReference{
 			Name: "myUserData",
 		},
@@ -24,7 +25,7 @@ var (
 			},
 		},
 	}
-	expectedRawForProviderSpec = `{"metadata":{"creationTimestamp":null},"userDataSecret":{"name":"myUserData"},"canIPForward":true,"deletionProtection":false,"networkInterfaces":[{"subnetwork":"my-subnet"}],"serviceAccounts":null,"machineType":"n1-standard-1","region":"us-east1","zone":"us-east1-b","shieldedInstanceConfig":{}}`
+	expectedRawForProviderSpec = `{"metadata":{"creationTimestamp":null},"userDataSecret":{"name":"myUserData"},"canIPForward":true,"deletionProtection":false,"networkInterfaces":[{"subnetwork":"my-subnet"}],"serviceAccounts":null,"machineType":"n1-standard-1","region":"us-east1","zone":"us-east1-b","shieldedInstanceConfig":{"secureBoot":"Enabled"}}`
 
 	instanceID             = "my-instance-id"
 	instanceState          = "RUNNING"

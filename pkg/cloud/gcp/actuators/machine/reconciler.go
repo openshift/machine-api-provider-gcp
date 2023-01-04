@@ -176,6 +176,11 @@ func (r *Reconciler) create() error {
 			Preemptible:       r.providerSpec.Preemptible,
 			OnHostMaintenance: string(r.providerSpec.OnHostMaintenance),
 		},
+		ShieldedInstanceConfig: &compute.ShieldedInstanceConfig{
+			EnableSecureBoot:          false,
+			EnableVtpm:                true,
+			EnableIntegrityMonitoring: true,
+		},
 	}
 
 	if automaticRestart, err := restartPolicyToBool(r.providerSpec.RestartPolicy, r.providerSpec.Preemptible); err != nil {
@@ -184,21 +189,17 @@ func (r *Reconciler) create() error {
 		instance.Scheduling.AutomaticRestart = automaticRestart
 	}
 
-	shieldedInstanceConfig := compute.ShieldedInstanceConfig{
-		EnableSecureBoot:          false,
-		EnableVtpm:                true,
-		EnableIntegrityMonitoring: true,
-	}
 	if r.providerSpec.ShieldedInstanceConfig.SecureBoot == machinev1.SecureBootPolicyEnabled {
-		shieldedInstanceConfig.EnableSecureBoot = true
+		klog.Infof("%s: Setting secureBoot to true", r.machine.Name)
+		instance.ShieldedInstanceConfig.EnableSecureBoot = true
 	}
 	if r.providerSpec.ShieldedInstanceConfig.VirtualizedTrustedPlatformModule == machinev1.VirtualizedTrustedPlatformModulePolicyDisabled {
-		shieldedInstanceConfig.EnableVtpm = false
+		instance.ShieldedInstanceConfig.EnableVtpm = false
 	}
 	if r.providerSpec.ShieldedInstanceConfig.IntegrityMonitoring == machinev1.IntegrityMonitoringPolicyDisabled {
-		shieldedInstanceConfig.EnableIntegrityMonitoring = false
+		instance.ShieldedInstanceConfig.EnableIntegrityMonitoring = false
 	}
-	instance.ShieldedInstanceConfig = &shieldedInstanceConfig
+	klog.Infof("%s: instance.shieldedInstanceConfig: %+v", r.machine.Name, *instance.ShieldedInstanceConfig)
 
 	var guestAccelerators = []*compute.AcceleratorConfig{}
 
