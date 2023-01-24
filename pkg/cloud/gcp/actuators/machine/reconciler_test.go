@@ -435,6 +435,20 @@ func TestCreate(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "confidential compute enabled",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:              "test-region",
+				Zone:                "test-zone",
+				MachineType:         "n2d-standard-4",
+				ConfidentialCompute: machinev1.ConfidentialComputePolicyEnabled,
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.ConfidentialInstanceConfig.EnableConfidentialCompute != true {
+					t.Errorf("Expected EnableConfidentialCompute to be true, Got: %t", instance.ConfidentialInstanceConfig.EnableConfidentialCompute)
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {

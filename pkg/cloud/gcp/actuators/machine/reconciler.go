@@ -201,6 +201,9 @@ func (r *Reconciler) create() error {
 		instance.ShieldedInstanceConfig.ForceSendFields = append(instance.ShieldedInstanceConfig.ForceSendFields, "EnableIntegrityMonitoring")
 	}
 
+	if r.providerSpec.ConfidentialCompute == machinev1.ConfidentialComputePolicyEnabled {
+		instance.ConfidentialInstanceConfig = &compute.ConfidentialInstanceConfig{EnableConfidentialCompute: true}
+	}
 	var guestAccelerators = []*compute.AcceleratorConfig{}
 
 	if l := len(r.providerSpec.GPUs); l == 1 {
