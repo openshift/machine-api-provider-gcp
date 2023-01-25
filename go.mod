@@ -2,6 +2,8 @@ module github.com/openshift/machine-api-provider-gcp
 
 go 1.18
 
+replace golang.org/x/net => golang.org/x/net v0.5.0
+
 require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/go-logr/logr v1.2.3
@@ -86,9 +88,9 @@ require (
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
 	golang.org/x/mod v0.6.0 // indirect
 	golang.org/x/net v0.1.0 // indirect
-	golang.org/x/sys v0.2.0 // indirect
-	golang.org/x/term v0.1.0 // indirect
-	golang.org/x/text v0.4.0 // indirect
+	golang.org/x/sys v0.4.0 // indirect
+	golang.org/x/term v0.4.0 // indirect
+	golang.org/x/text v0.6.0 // indirect
 	golang.org/x/time v0.0.0-20220609170525-579cf78fd858 // indirect
 	golang.org/x/tools v0.2.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
