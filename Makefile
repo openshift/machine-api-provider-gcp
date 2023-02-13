@@ -10,7 +10,7 @@ ENVTEST_K8S_VERSION = 1.26
 VERSION     ?= $(shell git describe --always --abbrev=7)
 REPO_PATH   ?= github.com/openshift/machine-api-provider-gcp
 LD_FLAGS    ?= -X $(REPO_PATH)/pkg/version.Raw=$(VERSION) -extldflags -static
-BUILD_IMAGE ?= registry.ci.openshift.org/openshift/release:golang-1.18
+BUILD_IMAGE ?= registry.ci.openshift.org/openshift/release:golang-1.19
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ENVTEST = go run ${PROJECT_DIR}/vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest
