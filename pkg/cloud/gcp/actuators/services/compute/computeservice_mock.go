@@ -247,3 +247,8 @@ func (c *GCPComputeServiceMock) BackendServiceGet(project string, region string,
 		},
 	}, nil
 }
+
+func (c *GCPComputeServiceMock) NetworksList(project string) (*compute.NetworkList, error) {
+	// TODO: Work this out for unit test for VPC network
+	return nil, nil
+}
