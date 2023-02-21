@@ -4,10 +4,16 @@ ifeq ($(DBG),1)
 GOGCFLAGS ?= -gcflags=all="-N -l"
 endif
 
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.26
+
 VERSION     ?= $(shell git describe --always --abbrev=7)
 REPO_PATH   ?= github.com/openshift/machine-api-provider-gcp
 LD_FLAGS    ?= -X $(REPO_PATH)/pkg/version.Raw=$(VERSION) -extldflags -static
-BUILD_IMAGE ?= registry.ci.openshift.org/openshift/release:golang-1.18
+BUILD_IMAGE ?= registry.ci.openshift.org/openshift/release:golang-1.19
+
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+ENVTEST = go run ${PROJECT_DIR}/vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest
 
 GO111MODULE = on
 export GO111MODULE
@@ -15,13 +21,6 @@ GOFLAGS ?= -mod=vendor
 export GOFLAGS
 GOPROXY ?=
 export GOPROXY
-
-GOARCH ?= $(shell go env GOARCH)
-GOOS ?= $(shell go env GOOS)
-
-# race tests need CGO_ENABLED, everything else should have it disabled
-CGO_ENABLED = 0
-unit : CGO_ENABLED = 1
 
 NO_DOCKER ?= 0
 
@@ -39,18 +38,17 @@ ifeq ($(USE_DOCKER), 1)
 endif
 
 ifeq ($(NO_DOCKER), 1)
-  DOCKER_CMD = CGO_ENABLED=$(CGO_ENABLED) GOARCH=$(GOARCH) GOOS=$(GOOS)
   IMAGE_BUILD_CMD = imagebuilder
-  export CGO_ENABLED
 else
-  DOCKER_CMD :=  $(ENGINE) run --rm -e CGO_ENABLED=0 -e GOARCH=$(GOARCH) -e GOOS=$(GOOS) -v "$(PWD)":/go/src/github.com/openshift/machine-api-provider-gcp:Z -w /go/src/github.com/openshift/machine-api-provider-gcp $(BUILD_IMAGE)
+  DOCKER_CMD :=  $(ENGINE) run --rm -v "$(PWD)":/go/src/github.com/openshift/machine-api-provider-gcp:Z -w /go/src/github.com/openshift/machine-api-provider-gcp $(BUILD_IMAGE)
   IMAGE_BUILD_CMD =  $(ENGINE) build
 endif
 
 .PHONY: vendor
 vendor:
-	$(DOCKER_CMD) hack/go-mod.sh
-
+	go mod tidy
+	go mod vendor
+	go mod verify
 
 .PHONY: generate
 generate: gogen goimports
@@ -80,13 +78,11 @@ verify-crds-sync: ## Verify that the crds in install and the ones in vendored oc
 	$(DOCKER_CMD) hack/crds-sync.sh . && hack/verify-diff.sh .
 
 .PHONY: test
-test: ## Run tests
-	@echo -e "\033[32mTesting...\033[0m"
-	$(DOCKER_CMD) hack/ci-test.sh
+test: unit ## Run tests
 
 .PHONY: unit
 unit: # Run unit test
-	$(DOCKER_CMD) go test -race -cover ./cmd/... ./pkg/...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/bin)" ./hack/test.sh
 
 .PHONY: sec
 sec: # Run security static analysis
