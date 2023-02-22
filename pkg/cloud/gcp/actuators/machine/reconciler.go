@@ -666,30 +666,27 @@ func (r *Reconciler) ensureInstanceGroup(instanceGroupName string) error {
 // ensureCorrectNetworkAndSubnetName makes sure that we are working with the correct network and subnet.
 // In a case of VPC, we have to look whether the expect name of the network and subnet resource
 // matches the one, that is actually up in the cluster.
-func (r *Reconciler) ensureCorrectNetworkAndSubnetName() (string, string, error) {
+func (r *Reconciler) ensureCorrectNetworkAndSubnetName() (string, string) {
 	actualNetworkName := fmt.Sprintf("%s-network", r.machine.Labels[machinev1.MachineClusterIDLabel])
 	actualSubnetworkName := fmt.Sprintf("%s-%s-subnet", r.machine.Labels[machinev1.MachineClusterIDLabel], r.machineScope.machine.ObjectMeta.Labels[openshiftMachineRoleLabel])
 
 	for _, network := range r.providerSpec.NetworkInterfaces {
 		if network.Network == actualNetworkName && network.Subnetwork == actualSubnetworkName {
-			return actualNetworkName, actualSubnetworkName, nil
+			return actualNetworkName, actualSubnetworkName
 		}
 	}
 	actualNetworkName = r.providerSpec.NetworkInterfaces[0].Network
 	actualSubnetworkName = r.providerSpec.NetworkInterfaces[0].Subnetwork
 
-	return actualNetworkName, actualSubnetworkName, nil
+	return actualNetworkName, actualSubnetworkName
 }
 
 // registerNewInstanceGroup registers an instance group when there is an instance
 // that is using that unkown instance group.
 func (r *Reconciler) registerNewInstanceGroup() error {
-	actualNetworkName, actualSubnetworkName, err := r.ensureCorrectNetworkAndSubnetName()
-	if err != nil {
-		return fmt.Errorf("failed to ensure the correct network name: %v", err)
-	}
+	actualNetworkName, actualSubnetworkName := r.ensureCorrectNetworkAndSubnetName()
 
-	_, err = r.computeService.InstanceGroupInsert(r.projectID, r.providerSpec.Zone, &compute.InstanceGroup{
+	_, err := r.computeService.InstanceGroupInsert(r.projectID, r.providerSpec.Zone, &compute.InstanceGroup{
 		Name:       r.controlPlaneGroupName(),
 		Region:     r.providerSpec.Region,
 		Zone:       r.providerSpec.Zone,
@@ -697,7 +694,7 @@ func (r *Reconciler) registerNewInstanceGroup() error {
 		Subnetwork: r.instanceGroupSubNetworkName(actualSubnetworkName),
 	})
 	if err != nil {
-		return fmt.Errorf("instanceGroupInsert request failed: %v", err)
+		return fmt.Errorf("instanceGroupInsert request failed: %w", err)
 	}
 
 	return nil

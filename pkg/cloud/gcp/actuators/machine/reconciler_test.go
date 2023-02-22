@@ -1187,12 +1187,6 @@ func TestEnsureCorrectNetworkAndSubnetName(t *testing.T) {
 				MachineType: testType,
 				Region:      testRegion,
 				Zone:        testZone,
-				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
-					{
-						Network:    "custom-test-network",
-						Subnetwork: "custom-test-subnetwork",
-					},
-				},
 			},
 		},
 	}
@@ -1201,43 +1195,69 @@ func TestEnsureCorrectNetworkAndSubnetName(t *testing.T) {
 		name                   string
 		expectedNetworkName    string
 		expectedSubnetworkName string
-		expectedError          error
+		networkInterfaces      []*machinev1.GCPNetworkInterface
 	}{
 		{
 			name:                   "Custom network and subnetwork name",
 			expectedNetworkName:    "custom-test-network",
 			expectedSubnetworkName: "custom-test-subnetwork",
-			expectedError:          nil,
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "custom-test-network",
+					Subnetwork: "custom-test-subnetwork",
+				},
+			},
 		},
 		{
 			name:                   "Expected network and subnetwork name present",
 			expectedNetworkName:    "test-machine-1-network",
 			expectedSubnetworkName: "test-machine-1-test-machine-role-subnet",
-			expectedError:          nil,
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "test-machine-1-network",
+					Subnetwork: "test-machine-1-test-machine-role-subnet",
+				},
+			},
+		},
+		{
+			name:                   "Two interfaces, expected in index 0",
+			expectedNetworkName:    "test-machine-1-network",
+			expectedSubnetworkName: "test-machine-1-test-machine-role-subnet",
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "test-machine-1-network",
+					Subnetwork: "test-machine-1-test-machine-role-subnet",
+				},
+				{
+					Network:    "custom-test-2-network",
+					Subnetwork: "custom-test-2-subnetwork",
+				},
+			},
+		},
+		{
+			name:                   "Three interfaces, expected in index 2",
+			expectedNetworkName:    "test-machine-1-network",
+			expectedSubnetworkName: "test-machine-1-test-machine-role-subnet",
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "custom-test-1-network",
+					Subnetwork: "custom-test-1-subnetwork",
+				},
+				{
+					Network:    "custom-test-2-network",
+					Subnetwork: "custom-test-2-subnetwork",
+				},
+				{
+					Network:    "test-machine-1-network",
+					Subnetwork: "test-machine-1-test-machine-role-subnet",
+				},
+			},
 		},
 	}
 
-	for i, tc := range cases {
-		// Append the expected format of network and subnetwork according to GCP docs
-		if i == 1 {
-			r.providerSpec.NetworkInterfaces = append(r.providerSpec.NetworkInterfaces, &machinev1.GCPNetworkInterface{
-				Network:    "test-machine-1-network",
-				Subnetwork: "test-machine-1-test-machine-role-subnet",
-			})
-		}
-		actualNetworkName, actualSubnetworkName, err := r.ensureCorrectNetworkAndSubnetName()
-		if tc.expectedError != nil {
-			if err == nil {
-				t.Error("ensureCorrectNetworkAndSubnetName was expected to return error")
-			}
-			if err.Error() != tc.expectedError.Error() {
-				t.Errorf("Expected: %v, got %v", tc.expectedError, err)
-			}
-		} else {
-			if err != nil {
-				t.Errorf("ensureCorrectNetworkAndSubnetName was not expected to return error: %v", err)
-			}
-		}
+	for _, tc := range cases {
+		r.providerSpec.NetworkInterfaces = tc.networkInterfaces
+		actualNetworkName, actualSubnetworkName := r.ensureCorrectNetworkAndSubnetName()
 
 		if actualNetworkName != tc.expectedNetworkName || actualSubnetworkName != tc.expectedSubnetworkName {
 			t.Errorf("Expected NetworkName: %s, got: %s\nExpected SubnetworkName: %s, got: %s", tc.expectedNetworkName, actualNetworkName, tc.expectedSubnetworkName, actualSubnetworkName)
