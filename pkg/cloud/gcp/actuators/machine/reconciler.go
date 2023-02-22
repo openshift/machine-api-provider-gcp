@@ -670,6 +670,7 @@ func (r *Reconciler) ensureCorrectNetworkAndSubnetName() (string, string, error)
 	foundNetworkInterface := false
 	actualNetworkName := fmt.Sprintf("%s-network", r.machine.Labels[machinev1.MachineClusterIDLabel])
 	actualSubnetworkName := fmt.Sprintf("%s-%s-subnet", r.machine.Labels[machinev1.MachineClusterIDLabel], r.machineScope.machine.ObjectMeta.Labels[openshiftMachineRoleLabel])
+
 	for _, network := range r.providerSpec.NetworkInterfaces {
 		if network.Network == actualNetworkName && network.Subnetwork == actualSubnetworkName {
 			foundNetworkInterface = true

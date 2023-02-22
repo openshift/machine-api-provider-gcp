@@ -1164,3 +1164,83 @@ func TestRestartPolicyToBool(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureCorrectNetworkAndSubnetName(t *testing.T) {
+	testType := "testType"
+	testRegion := "testRegion"
+	testZone := "testZone"
+
+	r := Reconciler{
+		machineScope: &machineScope{
+
+			machine: &machinev1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "",
+					Namespace: "",
+					Labels: map[string]string{
+						machinev1.MachineClusterIDLabel: "test-machine-1",
+						openshiftMachineRoleLabel:       "test-machine-role",
+					},
+				},
+			},
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				MachineType: testType,
+				Region:      testRegion,
+				Zone:        testZone,
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:    "custom-test-network",
+						Subnetwork: "custom-test-subnetwork",
+					},
+				},
+			},
+		},
+	}
+
+	cases := []struct {
+		name                   string
+		expectedNetworkName    string
+		expectedSubnetworkName string
+		expectedError          error
+	}{
+		{
+			name:                   "Custom network and subnetwork name",
+			expectedNetworkName:    "custom-test-network",
+			expectedSubnetworkName: "custom-test-subnetwork",
+			expectedError:          nil,
+		},
+		{
+			name:                   "Expected network and subnetwork name present",
+			expectedNetworkName:    "test-machine-1-network",
+			expectedSubnetworkName: "test-machine-1-test-machine-role-subnet",
+			expectedError:          nil,
+		},
+	}
+
+	for i, tc := range cases {
+		// Append the expected format of network and subnetwork according to GCP docs
+		if i == 1 {
+			r.providerSpec.NetworkInterfaces = append(r.providerSpec.NetworkInterfaces, &machinev1.GCPNetworkInterface{
+				Network:    "test-machine-1-network",
+				Subnetwork: "test-machine-1-test-machine-role-subnet",
+			})
+		}
+		actualNetworkName, actualSubnetworkName, err := r.ensureCorrectNetworkAndSubnetName()
+		if tc.expectedError != nil {
+			if err == nil {
+				t.Error("ensureCorrectNetworkAndSubnetName was expected to return error")
+			}
+			if err.Error() != tc.expectedError.Error() {
+				t.Errorf("Expected: %v, got %v", tc.expectedError, err)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("ensureCorrectNetworkAndSubnetName was not expected to return error: %v", err)
+			}
+		}
+
+		if actualNetworkName != tc.expectedNetworkName || actualSubnetworkName != tc.expectedSubnetworkName {
+			t.Errorf("Expected NetworkName: %s, got: %s\nExpected SubnetworkName: %s, got: %s", tc.expectedNetworkName, actualNetworkName, tc.expectedSubnetworkName, actualSubnetworkName)
+		}
+	}
+}
