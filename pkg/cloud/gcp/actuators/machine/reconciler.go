@@ -667,20 +667,16 @@ func (r *Reconciler) ensureInstanceGroup(instanceGroupName string) error {
 // In a case of VPC, we have to look whether the expect name of the network and subnet resource
 // matches the one, that is actually up in the cluster.
 func (r *Reconciler) ensureCorrectNetworkAndSubnetName() (string, string, error) {
-	foundNetworkInterface := false
 	actualNetworkName := fmt.Sprintf("%s-network", r.machine.Labels[machinev1.MachineClusterIDLabel])
 	actualSubnetworkName := fmt.Sprintf("%s-%s-subnet", r.machine.Labels[machinev1.MachineClusterIDLabel], r.machineScope.machine.ObjectMeta.Labels[openshiftMachineRoleLabel])
 
 	for _, network := range r.providerSpec.NetworkInterfaces {
 		if network.Network == actualNetworkName && network.Subnetwork == actualSubnetworkName {
-			foundNetworkInterface = true
-			break
+			return actualNetworkName, actualSubnetworkName, nil
 		}
 	}
-	if !foundNetworkInterface {
-		actualNetworkName = r.providerSpec.NetworkInterfaces[0].Network
-		actualSubnetworkName = r.providerSpec.NetworkInterfaces[0].Subnetwork
-	}
+	actualNetworkName = r.providerSpec.NetworkInterfaces[0].Network
+	actualSubnetworkName = r.providerSpec.NetworkInterfaces[0].Subnetwork
 
 	return actualNetworkName, actualSubnetworkName, nil
 }
