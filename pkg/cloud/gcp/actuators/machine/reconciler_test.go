@@ -1164,3 +1164,103 @@ func TestRestartPolicyToBool(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureCorrectNetworkAndSubnetName(t *testing.T) {
+	testType := "testType"
+	testRegion := "testRegion"
+	testZone := "testZone"
+
+	r := Reconciler{
+		machineScope: &machineScope{
+
+			machine: &machinev1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "",
+					Namespace: "",
+					Labels: map[string]string{
+						machinev1.MachineClusterIDLabel: "test-machine-1",
+						openshiftMachineRoleLabel:       "test-machine-role",
+					},
+				},
+			},
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				MachineType: testType,
+				Region:      testRegion,
+				Zone:        testZone,
+			},
+		},
+	}
+
+	cases := []struct {
+		name                   string
+		expectedNetworkName    string
+		expectedSubnetworkName string
+		networkInterfaces      []*machinev1.GCPNetworkInterface
+	}{
+		{
+			name:                   "Custom network and subnetwork name",
+			expectedNetworkName:    "custom-test-network",
+			expectedSubnetworkName: "custom-test-subnetwork",
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "custom-test-network",
+					Subnetwork: "custom-test-subnetwork",
+				},
+			},
+		},
+		{
+			name:                   "Expected network and subnetwork name present",
+			expectedNetworkName:    "test-machine-1-network",
+			expectedSubnetworkName: "test-machine-1-test-machine-role-subnet",
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "test-machine-1-network",
+					Subnetwork: "test-machine-1-test-machine-role-subnet",
+				},
+			},
+		},
+		{
+			name:                   "Two interfaces, expected in index 0",
+			expectedNetworkName:    "test-machine-1-network",
+			expectedSubnetworkName: "test-machine-1-test-machine-role-subnet",
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "test-machine-1-network",
+					Subnetwork: "test-machine-1-test-machine-role-subnet",
+				},
+				{
+					Network:    "custom-test-2-network",
+					Subnetwork: "custom-test-2-subnetwork",
+				},
+			},
+		},
+		{
+			name:                   "Three interfaces, expected in index 2",
+			expectedNetworkName:    "test-machine-1-network",
+			expectedSubnetworkName: "test-machine-1-test-machine-role-subnet",
+			networkInterfaces: []*machinev1.GCPNetworkInterface{
+				{
+					Network:    "custom-test-1-network",
+					Subnetwork: "custom-test-1-subnetwork",
+				},
+				{
+					Network:    "custom-test-2-network",
+					Subnetwork: "custom-test-2-subnetwork",
+				},
+				{
+					Network:    "test-machine-1-network",
+					Subnetwork: "test-machine-1-test-machine-role-subnet",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		r.providerSpec.NetworkInterfaces = tc.networkInterfaces
+		actualNetworkName, actualSubnetworkName := r.ensureCorrectNetworkAndSubnetName()
+
+		if actualNetworkName != tc.expectedNetworkName || actualSubnetworkName != tc.expectedSubnetworkName {
+			t.Errorf("Expected NetworkName: %s, got: %s\nExpected SubnetworkName: %s, got: %s", tc.expectedNetworkName, actualNetworkName, tc.expectedSubnetworkName, actualSubnetworkName)
+		}
+	}
+}
