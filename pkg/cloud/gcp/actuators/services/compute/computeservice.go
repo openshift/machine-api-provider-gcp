@@ -28,6 +28,9 @@ type GCPComputeService interface {
 	RegionGet(project string, region string) (*compute.Region, error)
 	GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]int64, []string)
 	AcceleratorTypeGet(project string, zone string, acceleratorType string) (*compute.AcceleratorType, error)
+	InstanceGroupsListInstances(project string, zone string, instanceGroup string, request *compute.InstanceGroupsListInstancesRequest) (*compute.InstanceGroupsListInstances, error)
+	InstanceGroupsAddInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
+	InstanceGroupsRemoveInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
 }
 
 type computeService struct {
@@ -141,4 +144,30 @@ func (c *computeService) AcceleratorTypeGet(project string, zone string, acceler
 
 func (c *computeService) RegionGet(project string, region string) (*compute.Region, error) {
 	return c.service.Regions.Get(project, region).Do()
+}
+
+func (c *computeService) InstanceGroupsAddInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error) {
+	request := &compute.InstanceGroupsAddInstancesRequest{
+		Instances: []*compute.InstanceReference{
+			{
+				Instance: instance,
+			},
+		},
+	}
+	return c.service.InstanceGroups.AddInstances(project, zone, instanceGroup, request).Do()
+}
+
+func (c *computeService) InstanceGroupsRemoveInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error) {
+	request := &compute.InstanceGroupsRemoveInstancesRequest{
+		Instances: []*compute.InstanceReference{
+			{
+				Instance: instance,
+			},
+		},
+	}
+	return c.service.InstanceGroups.RemoveInstances(project, zone, instanceGroup, request).Do()
+}
+
+func (c *computeService) InstanceGroupsListInstances(project string, zone string, instanceGroup string, request *compute.InstanceGroupsListInstancesRequest) (*compute.InstanceGroupsListInstances, error) {
+	return c.service.InstanceGroups.ListInstances(project, zone, instanceGroup, request).Do()
 }
