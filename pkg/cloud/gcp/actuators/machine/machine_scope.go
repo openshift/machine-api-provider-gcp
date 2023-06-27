@@ -8,6 +8,7 @@ import (
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -43,6 +44,10 @@ type machineScope struct {
 	origProviderStatus *machinev1.GCPMachineProviderStatus
 
 	machineToBePatched controllerclient.Patch
+
+	// Labels is a list of user-defined labels to apply to the resources created
+	// for the cluster
+	Labels map[string]string
 }
 
 // newMachineScope creates a new MachineScope from the supplied parameters.
@@ -75,6 +80,16 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		}
 	}
 
+	infra, err := util.GetInfrastructure(params.coreClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster infrastructure: %w", err)
+	}
+
+	labels, err := util.GetLabelsList(infra.Status.InfrastructureName, infra.Status.PlatformStatus, providerSpec.Labels)
+	if err != nil {
+		return nil, fmt.Errorf("error getting list of user-defined labels: %w", err)
+	}
+
 	computeService, err := params.computeClientBuilder(serviceAccountJSON)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("error creating compute service: %v", err)
@@ -97,6 +112,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		origMachine:        params.machine.DeepCopy(),
 		origProviderStatus: providerStatus.DeepCopy(),
 		machineToBePatched: controllerclient.MergeFrom(params.machine.DeepCopy()),
+		Labels:             labels,
 	}, nil
 }
 

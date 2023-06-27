@@ -12,8 +12,10 @@ import (
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
 	"github.com/openshift/machine-api-operator/pkg/util/windows"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
+
 	"google.golang.org/api/compute/v1"
-	googleapi "google.golang.org/api/googleapi"
+	"google.golang.org/api/googleapi"
 	corev1 "k8s.io/api/core/v1"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -166,7 +168,7 @@ func (r *Reconciler) create() error {
 	instance := &compute.Instance{
 		CanIpForward:       r.providerSpec.CanIPForward,
 		DeletionProtection: r.providerSpec.DeletionProtection,
-		Labels:             r.providerSpec.Labels,
+		Labels:             r.machineScope.Labels,
 		MachineType:        fmt.Sprintf(machineTypeFmt, zone, r.providerSpec.MachineType),
 		Name:               r.machine.Name,
 		Tags: &compute.Tags{
@@ -221,11 +223,6 @@ func (r *Reconciler) create() error {
 		return err
 	}
 
-	if instance.Labels == nil {
-		instance.Labels = map[string]string{}
-	}
-	instance.Labels[fmt.Sprintf("kubernetes-io-cluster-%v", r.machine.Labels[machinev1.MachineClusterIDLabel])] = "owned"
-
 	// disks
 	var disks = []*compute.AttachedDisk{}
 	for _, disk := range r.providerSpec.Disks {
@@ -241,7 +238,7 @@ func (r *Reconciler) create() error {
 			InitializeParams: &compute.AttachedDiskInitializeParams{
 				DiskSizeGb:  disk.SizeGB,
 				DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
-				Labels:      disk.Labels,
+				Labels:      r.machineScope.Labels,
 				SourceImage: srcImage,
 			},
 			DiskEncryptionKey: generateDiskEncryptionKey(disk.EncryptionKey, r.projectID),
@@ -345,6 +342,7 @@ func (r *Reconciler) create() error {
 		}
 		return fmt.Errorf("failed to create instance via compute service: %v", err)
 	}
+
 	return r.reconcileMachineWithCloudState(nil)
 }
 
