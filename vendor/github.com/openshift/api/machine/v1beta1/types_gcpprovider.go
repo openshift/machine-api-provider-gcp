@@ -149,6 +149,15 @@ type GCPMachineProviderSpec struct {
 	// +kubebuilder:validation:Enum=Enabled;Disabled
 	// +optional
 	ConfidentialCompute ConfidentialComputePolicy `json:"confidentialCompute,omitempty"`
+
+        // OrganizationID is the organization in which the GCP machine provider will create the VM and the
+        // user-defined tags to be applied to VM exist.
+        // +optional
+        OrganizationID string `json:"OrganizationID,omitempty"`
+
+        // UserTags is a list of user-defined tags to apply to the VM.
+        // +optional
+        UserTags map[string]string `json:"userTags,omitempty"`
 }
 
 // GCPDisk describes disks for GCP.
