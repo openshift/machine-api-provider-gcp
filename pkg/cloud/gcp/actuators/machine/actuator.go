@@ -66,6 +66,7 @@ func (a *Actuator) Create(ctx context.Context, machine *machinev1.Machine) error
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		eventRecorder:        a.eventRecorder,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)

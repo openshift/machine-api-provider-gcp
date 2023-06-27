@@ -8,8 +8,10 @@ import (
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -21,6 +23,7 @@ type machineScopeParams struct {
 	coreClient           controllerclient.Client
 	machine              *machinev1.Machine
 	computeClientBuilder computeservice.BuilderFuncType
+	eventRecorder        record.EventRecorder
 }
 
 // machineScope defines a scope defined around a machine and its cluster.
@@ -43,6 +46,12 @@ type machineScope struct {
 	origProviderStatus *machinev1.GCPMachineProviderStatus
 
 	machineToBePatched controllerclient.Patch
+
+	eventRecorder record.EventRecorder
+
+	// Tags is a list of user-defined tags to apply to the resources created
+	// for the cluster
+	Tags []string
 }
 
 // newMachineScope creates a new MachineScope from the supplied parameters.
@@ -75,6 +84,16 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		}
 	}
 
+	infra, err := util.GetInfrastructure(params.coreClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster infrastructure: %w", err)
+	}
+
+	tags, err := util.GetTagsList(infra.Status.PlatformStatus, providerSpec)
+	if err != nil {
+		return nil, fmt.Errorf("error getting list of user-defined tags: %w", err)
+	}
+
 	computeService, err := params.computeClientBuilder(serviceAccountJSON)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("error creating compute service: %v", err)
@@ -97,6 +116,8 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		origMachine:        params.machine.DeepCopy(),
 		origProviderStatus: providerStatus.DeepCopy(),
 		machineToBePatched: controllerclient.MergeFrom(params.machine.DeepCopy()),
+		eventRecorder:      params.eventRecorder,
+		Tags:               tags,
 	}, nil
 }
 
