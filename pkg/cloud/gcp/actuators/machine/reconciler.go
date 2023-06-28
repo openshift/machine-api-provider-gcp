@@ -343,6 +343,20 @@ func (r *Reconciler) create() error {
 		return fmt.Errorf("failed to create instance via compute service: %v", err)
 	}
 
+	tags := &util.GCPTags{
+		CoreClient:   r.coreClient,
+		Namespace:    r.machine.GetNamespace(),
+		ProviderSpec: *r.providerSpec,
+		ProjectID:    r.projectID,
+		InstanceID:   instance.Id,
+		InstanceZone: instance.Zone,
+		TagValues:    r.Tags,
+	}
+	if err := tags.ApplyTagsToComputeInstance(r.Context); err != nil {
+		r.eventRecorder.Eventf(r.machine, corev1.EventTypeWarning, createEventAction,
+			"failed to add user-defined tags to %s compute instance: %v", r.machine.Name, err)
+	}
+
 	return r.reconcileMachineWithCloudState(nil)
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -22,6 +23,7 @@ type machineScopeParams struct {
 	coreClient           controllerclient.Client
 	machine              *machinev1.Machine
 	computeClientBuilder computeservice.BuilderFuncType
+	eventRecorder        record.EventRecorder
 }
 
 // machineScope defines a scope defined around a machine and its cluster.
@@ -45,9 +47,15 @@ type machineScope struct {
 
 	machineToBePatched controllerclient.Patch
 
+	eventRecorder record.EventRecorder
+
 	// Labels is a list of user-defined labels to apply to the resources created
 	// for the cluster
 	Labels map[string]string
+
+	// Tags is a list of user-defined tags to apply to the resources created
+	// for the cluster
+	Tags []string
 }
 
 // newMachineScope creates a new MachineScope from the supplied parameters.
@@ -89,6 +97,20 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error getting list of user-defined labels: %w", err)
 	}
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels["created_by"] = "bhb"
+	labels["env"] = "test"
+
+	tags, err := util.GetTagsList(infra.Status.PlatformStatus, providerSpec)
+	if err != nil {
+		return nil, fmt.Errorf("error getting list of user-defined tags: %w", err)
+	}
+	if tags == nil {
+		tags = make([]string, 0, 1)
+	}
+	tags = append(tags, "54643501348/ocp_tag_dev/bar")
 
 	computeService, err := params.computeClientBuilder(serviceAccountJSON)
 	if err != nil {
@@ -112,7 +134,9 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		origMachine:        params.machine.DeepCopy(),
 		origProviderStatus: providerStatus.DeepCopy(),
 		machineToBePatched: controllerclient.MergeFrom(params.machine.DeepCopy()),
+		eventRecorder:      params.eventRecorder,
 		Labels:             labels,
+		Tags:               tags,
 	}, nil
 }
 

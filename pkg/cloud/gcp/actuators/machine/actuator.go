@@ -61,11 +61,13 @@ func (a *Actuator) handleMachineError(machine *machinev1.Machine, err error, eve
 // Create creates a machine and is invoked by the machine controller.
 func (a *Actuator) Create(ctx context.Context, machine *machinev1.Machine) error {
 	klog.Infof("%s: Creating machine", machine.Name)
+	klog.Infof("----------------------- DEBUG ---------------------------")
 	scope, err := newMachineScope(machineScopeParams{
 		Context:              ctx,
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		eventRecorder:        a.eventRecorder,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)
