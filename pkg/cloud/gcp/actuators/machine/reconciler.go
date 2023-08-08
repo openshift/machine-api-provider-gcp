@@ -12,8 +12,9 @@ import (
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
 	"github.com/openshift/machine-api-operator/pkg/util/windows"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	"google.golang.org/api/compute/v1"
-	googleapi "google.golang.org/api/googleapi"
+	"google.golang.org/api/googleapi"
 	corev1 "k8s.io/api/core/v1"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -162,11 +163,17 @@ func (r *Reconciler) create() error {
 		return machinecontroller.InvalidMachineConfiguration("failed validating machine provider spec: %v", err)
 	}
 
+	labels, err := util.GetLabelsList(r.gcpLabelsTagsFeatureEnabled, r.coreClient,
+		r.machine.Labels[machinev1.MachineClusterIDLabel], r.providerSpec.Labels)
+	if err != nil {
+		return fmt.Errorf("error getting user-defined labels for machine %s: %w", r.machine.Name, err)
+	}
+
 	zone := r.providerSpec.Zone
 	instance := &compute.Instance{
 		CanIpForward:       r.providerSpec.CanIPForward,
 		DeletionProtection: r.providerSpec.DeletionProtection,
-		Labels:             r.providerSpec.Labels,
+		Labels:             labels,
 		MachineType:        fmt.Sprintf(machineTypeFmt, zone, r.providerSpec.MachineType),
 		Name:               r.machine.Name,
 		Tags: &compute.Tags{
@@ -221,11 +228,6 @@ func (r *Reconciler) create() error {
 		return err
 	}
 
-	if instance.Labels == nil {
-		instance.Labels = map[string]string{}
-	}
-	instance.Labels[fmt.Sprintf("kubernetes-io-cluster-%v", r.machine.Labels[machinev1.MachineClusterIDLabel])] = "owned"
-
 	// disks
 	var disks = []*compute.AttachedDisk{}
 	for _, disk := range r.providerSpec.Disks {
@@ -235,13 +237,19 @@ func (r *Reconciler) create() error {
 			srcImage = googleapi.ResolveRelative(r.computeService.BasePath(), fmt.Sprintf("projects/%s/global/images/%s", r.projectID, disk.Image))
 		}
 
+		labels, err := util.GetLabelsList(r.gcpLabelsTagsFeatureEnabled, r.coreClient,
+			r.machine.Labels[machinev1.MachineClusterIDLabel], disk.Labels)
+		if err != nil {
+			return fmt.Errorf("error getting user-defined labels for machine disk %s: %w", r.machine.Name, err)
+		}
+
 		disks = append(disks, &compute.AttachedDisk{
 			AutoDelete: disk.AutoDelete,
 			Boot:       disk.Boot,
 			InitializeParams: &compute.AttachedDiskInitializeParams{
 				DiskSizeGb:  disk.SizeGB,
 				DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
-				Labels:      disk.Labels,
+				Labels:      labels,
 				SourceImage: srcImage,
 			},
 			DiskEncryptionKey: generateDiskEncryptionKey(disk.EncryptionKey, r.projectID),

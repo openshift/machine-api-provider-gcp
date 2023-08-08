@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -21,6 +24,7 @@ type machineScopeParams struct {
 	coreClient           controllerclient.Client
 	machine              *machinev1.Machine
 	computeClientBuilder computeservice.BuilderFuncType
+	featureGates         featuregates.FeatureGate
 }
 
 // machineScope defines a scope defined around a machine and its cluster.
@@ -43,6 +47,9 @@ type machineScope struct {
 	origProviderStatus *machinev1.GCPMachineProviderStatus
 
 	machineToBePatched controllerclient.Patch
+
+	// gcpLabelsTagsFeatureEnabled indicates whether FeatureGateGCPLabelsTags is enabled
+	gcpLabelsTagsFeatureEnabled bool
 }
 
 // newMachineScope creates a new MachineScope from the supplied parameters.
@@ -79,6 +86,13 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("error creating compute service: %v", err)
 	}
+
+	gcpLabelsTagsFeature := false
+	if params.featureGates != nil {
+		gcpLabelsTagsFeature = params.featureGates.Enabled(configv1.FeatureGateGCPLabelsTags)
+		klog.V(1).Infof("status of %v feature is %t", configv1.FeatureGateGCPLabelsTags, gcpLabelsTagsFeature)
+	}
+
 	return &machineScope{
 		Context:    params.Context,
 		coreClient: params.coreClient,
@@ -94,9 +108,10 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		providerStatus: providerStatus,
 		// Once set, they can not be changed. Otherwise, status change computation
 		// might be invalid and result in skipping the status update.
-		origMachine:        params.machine.DeepCopy(),
-		origProviderStatus: providerStatus.DeepCopy(),
-		machineToBePatched: controllerclient.MergeFrom(params.machine.DeepCopy()),
+		origMachine:                 params.machine.DeepCopy(),
+		origProviderStatus:          providerStatus.DeepCopy(),
+		machineToBePatched:          controllerclient.MergeFrom(params.machine.DeepCopy()),
+		gcpLabelsTagsFeatureEnabled: gcpLabelsTagsFeature,
 	}, nil
 }
 
