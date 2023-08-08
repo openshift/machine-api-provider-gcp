@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	machinev1 "github.com/openshift/api/machine/v1beta1"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -30,6 +31,7 @@ type Actuator struct {
 	coreClient           controllerclient.Client
 	eventRecorder        record.EventRecorder
 	computeClientBuilder computeservice.BuilderFuncType
+	featureGates         featuregates.FeatureGate
 }
 
 // ActuatorParams holds parameter information for Actuator.
@@ -37,6 +39,7 @@ type ActuatorParams struct {
 	CoreClient           controllerclient.Client
 	EventRecorder        record.EventRecorder
 	ComputeClientBuilder computeservice.BuilderFuncType
+	FeatureGates         featuregates.FeatureGate
 }
 
 // NewActuator returns an actuator.
@@ -45,6 +48,7 @@ func NewActuator(params ActuatorParams) *Actuator {
 		coreClient:           params.CoreClient,
 		eventRecorder:        params.EventRecorder,
 		computeClientBuilder: params.ComputeClientBuilder,
+		featureGates:         params.FeatureGates,
 	}
 }
 
@@ -66,6 +70,7 @@ func (a *Actuator) Create(ctx context.Context, machine *machinev1.Machine) error
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		featureGates:         a.featureGates,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)
@@ -88,6 +93,7 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		featureGates:         a.featureGates,
 	})
 	if err != nil {
 		return false, fmt.Errorf(scopeFailFmt, machine.Name, err)
@@ -127,6 +133,7 @@ func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		featureGates:         a.featureGates,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)
@@ -162,6 +169,7 @@ func (a *Actuator) Delete(ctx context.Context, machine *machinev1.Machine) error
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		featureGates:         a.featureGates,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)
