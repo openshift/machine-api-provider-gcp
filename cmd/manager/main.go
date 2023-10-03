@@ -7,6 +7,9 @@ import (
 	"os"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
 	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
@@ -102,16 +105,22 @@ func main() {
 		LeaderElectionID:        "cluster-api-provider-gcp-leader",
 		LeaseDuration:           leaderElectLeaseDuration,
 		HealthProbeBindAddress:  *healthAddr,
-		SyncPeriod:              &syncPeriod,
-		MetricsBindAddress:      *metricsAddress,
+		Cache: cache.Options{
+			SyncPeriod: &syncPeriod,
+		},
+		Metrics: server.Options{
+			BindAddress: *metricsAddress,
+		},
 		// Slow the default retry and renew election rate to reduce etcd writes at idle: BZ 1858400
 		RetryPeriod:   &retryPeriod,
 		RenewDeadline: &renewDealine,
 	}
 
 	if *watchNamespace != "" {
-		opts.Namespace = *watchNamespace
-		klog.Infof("Watching machine-api objects only in namespace %q for reconciliation.", opts.Namespace)
+		opts.Cache.DefaultNamespaces = map[string]cache.Config{
+			*watchNamespace: {},
+		}
+		klog.Infof("Watching machine-api objects only in namespace %q for reconciliation.", *watchNamespace)
 	}
 
 	// Setup a Manager

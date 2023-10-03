@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"testing"
 
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gtypes "github.com/onsi/gomega/types"
@@ -72,7 +74,11 @@ var _ = Describe("Reconciler", func() {
 	var namespace *corev1.Namespace
 
 	BeforeEach(func() {
-		mgr, err := manager.New(cfg, manager.Options{MetricsBindAddress: "0"})
+		mgr, err := manager.New(cfg, manager.Options{
+			Metrics: server.Options{
+				BindAddress: "0",
+			},
+		})
 		Expect(err).ToNot(HaveOccurred())
 
 		_, service := computeservice.NewComputeServiceMock()
