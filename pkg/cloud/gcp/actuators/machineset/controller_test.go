@@ -42,7 +42,8 @@ import (
 // A mock giving some machine type options for testing
 var mockMachineTypesFunc = func(_ string, _ string, machineType string) (*compute.MachineType, error) {
 	switch machineType {
-	case "n1-standard-2":
+	// t2a-standard-2 is an arm64 instance type, but this information is not provided by the compute.MachineType struct
+	case "n1-standard-2", "t2a-standard-2":
 		return &compute.MachineType{
 			GuestCpus: 2,
 			MemoryMb:  7680,
@@ -161,6 +162,18 @@ var _ = Describe("Reconciler", func() {
 				cpuKey:    "2",
 				memoryKey: "7680",
 				gpuKey:    "0",
+				labelsKey: "kubernetes.io/arch=amd64",
+			},
+			expectedEvents: []string{},
+		}),
+		Entry("with a t2a-standard-2 (arm64)", reconcileTestCase{
+			machineType:         "t2a-standard-2",
+			existingAnnotations: make(map[string]string),
+			expectedAnnotations: map[string]string{
+				cpuKey:    "2",
+				memoryKey: "7680",
+				gpuKey:    "0",
+				labelsKey: "kubernetes.io/arch=arm64",
 			},
 			expectedEvents: []string{},
 		}),
@@ -172,6 +185,7 @@ var _ = Describe("Reconciler", func() {
 				cpuKey:    "2",
 				memoryKey: "7680",
 				gpuKey:    "2",
+				labelsKey: "kubernetes.io/arch=amd64",
 			},
 			expectedEvents: []string{},
 		}),
@@ -182,6 +196,7 @@ var _ = Describe("Reconciler", func() {
 				cpuKey:    "16",
 				memoryKey: "16384",
 				gpuKey:    "0",
+				labelsKey: "kubernetes.io/arch=amd64",
 			},
 			expectedEvents: []string{},
 		}),
@@ -192,6 +207,7 @@ var _ = Describe("Reconciler", func() {
 				cpuKey:    "24",
 				memoryKey: "174080",
 				gpuKey:    "2",
+				labelsKey: "kubernetes.io/arch=amd64",
 			},
 			expectedEvents: []string{},
 		}),
@@ -207,6 +223,7 @@ var _ = Describe("Reconciler", func() {
 				cpuKey:     "2",
 				memoryKey:  "7680",
 				gpuKey:     "0",
+				labelsKey:  "kubernetes.io/arch=amd64",
 			},
 			expectedEvents: []string{},
 		}),
@@ -295,6 +312,20 @@ func TestReconcile(t *testing.T) {
 				cpuKey:    "2",
 				memoryKey: "7680",
 				gpuKey:    "0",
+				labelsKey: "kubernetes.io/arch=amd64",
+			},
+			expectErr: false,
+		},
+		{
+			name:                "with a t2a-standard-2 (arm64)",
+			machineType:         "t2a-standard-2",
+			mockMachineTypesGet: mockMachineTypesFunc,
+			existingAnnotations: make(map[string]string),
+			expectedAnnotations: map[string]string{
+				cpuKey:    "2",
+				memoryKey: "7680",
+				gpuKey:    "0",
+				labelsKey: "kubernetes.io/arch=arm64",
 			},
 			expectErr: false,
 		},
@@ -308,6 +339,7 @@ func TestReconcile(t *testing.T) {
 				cpuKey:    "2",
 				memoryKey: "7680",
 				gpuKey:    "2",
+				labelsKey: "kubernetes.io/arch=amd64",
 			},
 			expectErr: false,
 		},
@@ -320,6 +352,7 @@ func TestReconcile(t *testing.T) {
 				cpuKey:    "16",
 				memoryKey: "16384",
 				gpuKey:    "0",
+				labelsKey: "kubernetes.io/arch=amd64",
 			},
 			expectErr: false,
 		},
@@ -332,6 +365,7 @@ func TestReconcile(t *testing.T) {
 				cpuKey:    "24",
 				memoryKey: "174080",
 				gpuKey:    "2",
+				labelsKey: "kubernetes.io/arch=amd64",
 			},
 			expectErr: false,
 		},
@@ -349,6 +383,7 @@ func TestReconcile(t *testing.T) {
 				cpuKey:     "2",
 				memoryKey:  "7680",
 				gpuKey:     "0",
+				labelsKey:  "kubernetes.io/arch=amd64",
 			},
 			expectErr: false,
 		},
