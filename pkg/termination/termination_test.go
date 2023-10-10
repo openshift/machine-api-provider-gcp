@@ -122,6 +122,7 @@ var _ = Describe("Handler Suite", func() {
 		var counter int32
 
 		BeforeEach(func() {
+			counter = 0
 			// Ensure the polling logic is excercised in tests
 			httpHandler = newMockHTTPHandler(func(rw http.ResponseWriter, req *http.Request) {
 				if atomic.LoadInt32(&counter) == 4 {
@@ -162,14 +163,19 @@ var _ = Describe("Handler Suite", func() {
 
 		Context("and the instance termination notice is not fulfilled", func() {
 			BeforeEach(func() {
-				httpHandler = newMockHTTPHandler(notPreempted)
+				httpHandler = newMockHTTPHandler(func(rw http.ResponseWriter, req *http.Request) {
+					atomic.AddInt32(&counter, 1)
+					notPreempted(rw, req)
+				})
 			})
 
 			It("should not mark the node for deletion", func() {
 				Consistently(nodeMarkedForDeletion(testNode.Name)).Should(BeFalse())
 			})
 		})
+	})
 
+	Context("when the termination endpoint is invalid", func() {
 		Context("and the poll URL cannot be reached", func() {
 			BeforeEach(func() {
 				h.pollURL = &url.URL{Opaque: "abc#1://localhost"}
