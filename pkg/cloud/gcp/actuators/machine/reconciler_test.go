@@ -485,7 +485,7 @@ func TestCreate(t *testing.T) {
 			reconciler := newReconciler(&machineScope)
 
 			if tc.secret != nil {
-				reconciler.coreClient = controllerfake.NewFakeClientWithScheme(scheme.Scheme, tc.secret)
+				reconciler.coreClient = controllerfake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects(tc.secret).Build()
 			}
 
 			if tc.mockInstancesInsert != nil {
@@ -1000,7 +1000,7 @@ func TestGetUserData(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		reconciler.coreClient = controllerfake.NewFakeClientWithScheme(scheme.Scheme, tc.secret)
+		reconciler.coreClient = controllerfake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects(tc.secret).Build()
 		userData, err := reconciler.getCustomUserData()
 		if tc.error != nil {
 			if err == nil {

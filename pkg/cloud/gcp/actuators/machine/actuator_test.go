@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
 	. "github.com/onsi/gomega"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
@@ -52,8 +54,10 @@ func TestActuatorEvents(t *testing.T) {
 	}()
 
 	mgr, err := manager.New(cfg, manager.Options{
-		Scheme:             scheme.Scheme,
-		MetricsBindAddress: "0",
+		Scheme: scheme.Scheme,
+		Metrics: server.Options{
+			BindAddress: "0",
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
