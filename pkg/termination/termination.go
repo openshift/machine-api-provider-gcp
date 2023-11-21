@@ -96,38 +96,21 @@ func (h *handler) run(ctx context.Context) error {
 	logger.V(1).Info("Monitoring node termination")
 
 	if err := wait.PollImmediateUntil(h.pollInterval, func() (bool, error) {
-		req, err := http.NewRequest("GET", h.pollURL.String(), nil)
-		if err != nil {
-			return false, fmt.Errorf("could not create request %q: %w", h.pollURL.String(), err)
+		terminated, err := h.checkTerminationEndpoint()
+		if !terminated {
+			logger.V(2).Info("Instance not marked for termination")
 		}
-
-		req.Header.Add("Metadata-Flavor", "Google")
-
-		resp, err := http.DefaultClient.Do(req)
-		if resp != nil {
-			defer resp.Body.Close()
-		}
-		if err != nil {
-			return false, fmt.Errorf("could not get URL %q: %w", h.pollURL.String(), err)
-		}
-
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return false, fmt.Errorf("failed to read responce body: %w", err)
-		}
-
-		respBody := string(bodyBytes)
-
-		if respBody == "TRUE" {
-			// Instance marked for termination
-			return true, nil
-		}
-
-		// Instance not terminated yet
-		logger.V(2).Info("Instance not marked for termination")
-		return false, nil
+		return terminated, err
 	}, ctx.Done()); err != nil {
 		return fmt.Errorf("error polling termination endpoint: %w", err)
+	}
+
+	// We might arrive here due to the context being canceled before we have gotten
+	// a clean signal from the termination endpoint, we check once more.
+	if terminated, err := h.checkTerminationEndpoint(); err != nil {
+		return err
+	} else if !terminated {
+		return nil
 	}
 
 	// Will only get here if the termination endpoint returned FALSE
@@ -148,6 +131,38 @@ func (h *handler) run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (h handler) checkTerminationEndpoint() (bool, error) {
+	req, err := http.NewRequest("GET", h.pollURL.String(), nil)
+	if err != nil {
+		return false, fmt.Errorf("could not create request %q: %w", h.pollURL.String(), err)
+	}
+
+	req.Header.Add("Metadata-Flavor", "Google")
+
+	resp, err := http.DefaultClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not get URL %q: %w", h.pollURL.String(), err)
+	}
+
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read responce body: %w", err)
+	}
+
+	respBody := string(bodyBytes)
+
+	if respBody == "TRUE" {
+		// Instance marked for termination
+		return true, nil
+	}
+
+	// Instance not terminated yet
+	return false, nil
 }
 
 func (h *handler) markNodeForDeletion(ctx context.Context) error {
