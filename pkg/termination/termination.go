@@ -3,7 +3,7 @@ package termination
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"sync"
@@ -95,17 +95,17 @@ func (h *handler) run(ctx context.Context) error {
 	logger := h.log.WithValues("node", h.nodeName)
 	logger.V(1).Info("Monitoring node termination")
 
-	if err := wait.PollImmediateUntil(h.pollInterval, func() (bool, error) {
+	if err := wait.PollUntilContextCancel(ctx, h.pollInterval, true, func(_ context.Context) (bool, error) {
 		terminated, err := h.checkTerminationEndpoint()
 		if !terminated {
 			logger.V(2).Info("Instance not marked for termination")
 		}
 		return terminated, err
-	}, ctx.Done()); err != nil {
+	}); err != nil {
 		return fmt.Errorf("error polling termination endpoint: %w", err)
 	}
 
-	// We might arrive here due to the context being canceled before we have gotten
+	// We might arrive here due to the context being cancelled before we have gotten
 	// a clean signal from the termination endpoint, we check once more.
 	if terminated, err := h.checkTerminationEndpoint(); err != nil {
 		return err
@@ -120,13 +120,13 @@ func (h *handler) run(ctx context.Context) error {
 	// This should help to prevent intermittent errors and ensure we don't end up in crash loop backoff.
 	markCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := wait.PollImmediateUntil(time.Second, func() (bool, error) {
+	if err := wait.PollUntilContextCancel(markCtx, time.Second, true, func(_ context.Context) (bool, error) {
 		if err := h.markNodeForDeletion(ctx); err != nil {
 			h.log.Error(err, "Instance not marked for termination")
 			return false, nil
 		}
 		return true, nil
-	}, markCtx.Done()); err != nil {
+	}); err != nil {
 		return fmt.Errorf("error marking node: %v", err)
 	}
 
@@ -149,7 +149,7 @@ func (h handler) checkTerminationEndpoint() (bool, error) {
 		return false, fmt.Errorf("could not get URL %q: %w", h.pollURL.String(), err)
 	}
 
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, fmt.Errorf("failed to read responce body: %w", err)
 	}
