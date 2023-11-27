@@ -101,7 +101,7 @@ func (h *handler) run(ctx context.Context) error {
 			logger.V(2).Info("Instance not marked for termination")
 		}
 		return terminated, err
-	}); err != nil {
+	}); err != nil && err != context.Canceled {
 		return fmt.Errorf("error polling termination endpoint: %w", err)
 	}
 
@@ -116,12 +116,24 @@ func (h *handler) run(ctx context.Context) error {
 	// Will only get here if the termination endpoint returned FALSE
 	logger.V(1).Info("Instance marked for termination, marking Node for deletion")
 
+	// Because we might have arrived here due to the context being cancelled, we need
+	// to check if it has been cancelled and if so create a new background context for the polling call.
+	var tmpctx context.Context
+	if err := ctx.Err(); err == context.Canceled {
+		tmpctx = context.Background()
+	} else if err != nil {
+		// some other error has occurred with the context, we should return it.
+		return err
+	} else {
+		tmpctx = ctx
+	}
+
 	// Try every second to mark the node for termination up to a 30 second timeout.
 	// This should help to prevent intermittent errors and ensure we don't end up in crash loop backoff.
-	markCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	markCtx, cancel := context.WithTimeout(tmpctx, 30*time.Second)
 	defer cancel()
-	if err := wait.PollUntilContextCancel(markCtx, time.Second, true, func(_ context.Context) (bool, error) {
-		if err := h.markNodeForDeletion(ctx); err != nil {
+	if err := wait.PollUntilContextCancel(markCtx, time.Second, true, func(ictx context.Context) (bool, error) {
+		if err := h.markNodeForDeletion(ictx); err != nil {
 			h.log.Error(err, "Instance not marked for termination")
 			return false, nil
 		}
