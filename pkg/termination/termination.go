@@ -3,7 +3,7 @@ package termination
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"sync"
@@ -95,59 +95,86 @@ func (h *handler) run(ctx context.Context) error {
 	logger := h.log.WithValues("node", h.nodeName)
 	logger.V(1).Info("Monitoring node termination")
 
-	if err := wait.PollImmediateUntil(h.pollInterval, func() (bool, error) {
-		req, err := http.NewRequest("GET", h.pollURL.String(), nil)
-		if err != nil {
-			return false, fmt.Errorf("could not create request %q: %w", h.pollURL.String(), err)
+	if err := wait.PollUntilContextCancel(ctx, h.pollInterval, true, func(_ context.Context) (bool, error) {
+		terminated, err := h.checkTerminationEndpoint()
+		if !terminated {
+			logger.V(2).Info("Instance not marked for termination")
 		}
-
-		req.Header.Add("Metadata-Flavor", "Google")
-
-		resp, err := http.DefaultClient.Do(req)
-		if resp != nil {
-			defer resp.Body.Close()
-		}
-		if err != nil {
-			return false, fmt.Errorf("could not get URL %q: %w", h.pollURL.String(), err)
-		}
-
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return false, fmt.Errorf("failed to read responce body: %w", err)
-		}
-
-		respBody := string(bodyBytes)
-
-		if respBody == "TRUE" {
-			// Instance marked for termination
-			return true, nil
-		}
-
-		// Instance not terminated yet
-		logger.V(2).Info("Instance not marked for termination")
-		return false, nil
-	}, ctx.Done()); err != nil {
+		return terminated, err
+	}); err != nil && err != context.Canceled {
 		return fmt.Errorf("error polling termination endpoint: %w", err)
+	}
+
+	// We might arrive here due to the context being cancelled before we have gotten
+	// a clean signal from the termination endpoint, we check once more.
+	if terminated, err := h.checkTerminationEndpoint(); err != nil {
+		return err
+	} else if !terminated {
+		return nil
 	}
 
 	// Will only get here if the termination endpoint returned FALSE
 	logger.V(1).Info("Instance marked for termination, marking Node for deletion")
 
+	// Because we might have arrived here due to the context being cancelled, we need
+	// to check if it has been cancelled and if so create a new background context for the polling call.
+	var tmpctx context.Context
+	if err := ctx.Err(); err == context.Canceled {
+		tmpctx = context.Background()
+	} else if err != nil {
+		// some other error has occurred with the context, we should return it.
+		return err
+	} else {
+		tmpctx = ctx
+	}
+
 	// Try every second to mark the node for termination up to a 30 second timeout.
 	// This should help to prevent intermittent errors and ensure we don't end up in crash loop backoff.
-	markCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	markCtx, cancel := context.WithTimeout(tmpctx, 30*time.Second)
 	defer cancel()
-	if err := wait.PollImmediateUntil(time.Second, func() (bool, error) {
-		if err := h.markNodeForDeletion(ctx); err != nil {
+	if err := wait.PollUntilContextCancel(markCtx, time.Second, true, func(ictx context.Context) (bool, error) {
+		if err := h.markNodeForDeletion(ictx); err != nil {
 			h.log.Error(err, "Instance not marked for termination")
 			return false, nil
 		}
 		return true, nil
-	}, markCtx.Done()); err != nil {
+	}); err != nil {
 		return fmt.Errorf("error marking node: %v", err)
 	}
 
 	return nil
+}
+
+func (h handler) checkTerminationEndpoint() (bool, error) {
+	req, err := http.NewRequest("GET", h.pollURL.String(), nil)
+	if err != nil {
+		return false, fmt.Errorf("could not create request %q: %w", h.pollURL.String(), err)
+	}
+
+	req.Header.Add("Metadata-Flavor", "Google")
+
+	resp, err := http.DefaultClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return false, fmt.Errorf("could not get URL %q: %w", h.pollURL.String(), err)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read responce body: %w", err)
+	}
+
+	respBody := string(bodyBytes)
+
+	if respBody == "TRUE" {
+		// Instance marked for termination
+		return true, nil
+	}
+
+	// Instance not terminated yet
+	return false, nil
 }
 
 func (h *handler) markNodeForDeletion(ctx context.Context) error {

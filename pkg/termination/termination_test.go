@@ -143,6 +143,8 @@ var _ = Describe("Handler Suite", func() {
 
 		Context("and the handler is stopped", func() {
 			JustBeforeEach(func() {
+				// these tests need the endpoint to return a non-terminated instance response
+				counter = 0
 				close(stop)
 			})
 
