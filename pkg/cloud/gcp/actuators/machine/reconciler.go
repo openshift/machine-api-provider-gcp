@@ -325,7 +325,7 @@ func (r *Reconciler) create() error {
 		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
 			Name:      r.machine.Name,
 			Namespace: r.machine.Namespace,
-			Reason:    err.Error(),
+			Reason:    "failed to create instance via compute service",
 		})
 		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&metav1.Condition{
 			Type:    string(machinev1.MachineCreated),
@@ -572,7 +572,7 @@ func (r *Reconciler) delete() error {
 		metrics.RegisterFailedInstanceDelete(&metrics.MachineLabels{
 			Name:      r.machine.Name,
 			Namespace: r.machine.Namespace,
-			Reason:    err.Error(),
+			Reason:    "failed to delete instance via compute service",
 		})
 		return fmt.Errorf("failed to delete instance via compute service: %v", err)
 	}
@@ -850,7 +850,7 @@ func (r *Reconciler) addInstanceToTargetPool(instanceLink string, pool string) e
 		metrics.RegisterFailedInstanceUpdate(&metrics.MachineLabels{
 			Name:      r.machine.Name,
 			Namespace: r.machine.Namespace,
-			Reason:    err.Error(),
+			Reason:    "failed to add instance to target pool",
 		})
 		return fmt.Errorf("failed to add instance %v to target pool %v: %v", r.machine.Name, pool, err)
 	}
@@ -863,7 +863,7 @@ func (r *Reconciler) deleteInstanceFromTargetPool(instanceLink string, pool stri
 		metrics.RegisterFailedInstanceDelete(&metrics.MachineLabels{
 			Name:      r.machine.Name,
 			Namespace: r.machine.Namespace,
-			Reason:    err.Error(),
+			Reason:    "failed to remove instance from target pool",
 		})
 		return fmt.Errorf("failed to remove instance %v from target pool %v: %v", r.machine.Name, pool, err)
 	}
