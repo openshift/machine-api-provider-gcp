@@ -57,8 +57,8 @@ func (mc *machineTypesCache) getMachineTypeFromCache(gcpService computeservice.G
 		if !isNotFoundError(err) {
 			return nil, fmt.Errorf("error fetching machine type %q in zone %q: %v", machineType, zone, err)
 		}
-		klog.Error("Unable to set scale from zero annotations: unknown instance type: %s", machineType)
-		klog.Error("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance type: %v", []string{cpuKey, memoryKey})
+		klog.Errorf("Unable to set scale from zero annotations: unknown instance type: %s", machineType)
+		klog.Errorf("Autoscaling from zero will not work. To fix this, manually populate machine annotations for your instance type: %v", []string{cpuKey, memoryKey})
 		// Returning no instance type and no error to prevent further reconciliation
 		return nil, nil
 	}

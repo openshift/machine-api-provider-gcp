@@ -143,12 +143,12 @@ func main() {
 		stopSignalContext.Done(),
 	)
 	if err != nil {
-		klog.Fatalf("failed to create feature gate accessor: %w", err)
+		klog.Fatalf("failed to create feature gate accessor: %v", err)
 	}
 
 	featureGates, err := awaitEnabledFeatureGates(featureGateAccessor, 1*time.Minute)
 	if err != nil {
-		klog.Fatalf("failed to get feature gates: %w", err)
+		klog.Fatalf("failed to get feature gates: %v", err)
 	}
 
 	// Initialize machine actuator.
