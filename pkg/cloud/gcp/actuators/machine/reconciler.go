@@ -183,6 +183,25 @@ func (r *Reconciler) create() error {
 		},
 	}
 
+	// When upgrading from 4.12 on GCP marketplace, the MachineSets refer to images that do not support shielded instances.
+	// Therefore, we should disable the shielded instance config for Machines created from older MachineSet templates.
+	gcpMarketplace := false
+	for _, disk := range r.providerSpec.Disks {
+		// TODO(nrb): Make the marketplace image string a constant
+		if strings.HasPrefix(disk.Image, "projects/redhat-marketplace-public") {
+			gcpMarketplace = true
+			break
+		}
+	}
+
+	if gcpMarketplace && r.providerSpec.ShieldedInstanceConfig == (machinev1.GCPShieldedInstanceConfig{}) {
+		// Reset the entire struct to zero values
+		instance.ShieldedInstanceConfig = &compute.ShieldedInstanceConfig{}
+		// Force sending the fields where the default zero values don't match the compute API's defaults.
+		instance.ShieldedInstanceConfig.ForceSendFields = append(instance.ShieldedInstanceConfig.ForceSendFields, "EnableVtpm")
+		instance.ShieldedInstanceConfig.ForceSendFields = append(instance.ShieldedInstanceConfig.ForceSendFields, "EnableIntegrityMonitoring")
+	}
+
 	if automaticRestart, err := restartPolicyToBool(r.providerSpec.RestartPolicy, r.providerSpec.Preemptible); err != nil {
 		return machinecontroller.InvalidMachineConfiguration("failed to determine restart policy: %v", err)
 	} else {
