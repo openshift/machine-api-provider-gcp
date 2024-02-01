@@ -112,7 +112,7 @@ var _ = Describe("Reconciler", func() {
 	}
 
 	DescribeTable("when reconciling MachineSets", func(rtc reconcileTestCase) {
-		machineSet, err := newTestMachineSet(namespace.Name, rtc.machineType, rtc.guestAccelerators, rtc.existingAnnotations)
+		machineSet, err := newTestMachineSet(namespace.Name, rtc.machineType, rtc.guestAccelerators, rtc.existingAnnotations, nil)
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(c.Create(ctx, machineSet)).To(Succeed())
@@ -379,7 +379,7 @@ func TestReconcile(t *testing.T) {
 				},
 			}
 
-			machineSet, err := newTestMachineSet("default", tc.machineType, tc.guestAccelerators, tc.existingAnnotations)
+			machineSet, err := newTestMachineSet("default", tc.machineType, tc.guestAccelerators, tc.existingAnnotations, nil)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			_, err = r.reconcile(machineSet)
@@ -389,7 +389,64 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
-func newTestMachineSet(namespace string, machineType string, guestAccelerators []machinev1.GCPGPUConfig, existingAnnotations map[string]string) (*machinev1.MachineSet, error) {
+func TestReconcileDisks(t *testing.T) {
+	testCases := []struct {
+		name           string
+		disks          []*machinev1.GCPDisk
+		expectDisabled bool
+	}{
+		{
+			name: "boot disk without UEFI",
+			disks: []*machinev1.GCPDisk{
+				{Boot: true},
+			},
+			expectDisabled: true,
+		},
+		{
+			name: "boot disk with UEFI",
+			disks: []*machinev1.GCPDisk{
+				{Boot: true, Image: "uefi"},
+			},
+			expectDisabled: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(tt *testing.T) {
+			g := NewWithT(tt)
+			machineSet, err := newTestMachineSet("default", "n1-standard-2", nil, make(map[string]string), tc.disks)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			_, service := computeservice.NewComputeServiceMock()
+			service.MockMachineTypesGet = mockMachineTypesFunc
+			r := &Reconciler{
+				recorder: record.NewFakeRecorder(1),
+				cache:    newMachineTypesCache(),
+				getGCPService: func(_ string, _ machinev1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error) {
+					return service, nil
+				},
+			}
+
+			_, err = r.reconcile(machineSet)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			providerConfig, err := getproviderConfig(machineSet)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			if tc.expectDisabled {
+				g.Expect(providerConfig.ShieldedInstanceConfig.SecureBoot).To(Equal(machinev1.SecureBootPolicyDisabled))
+				g.Expect(providerConfig.ShieldedInstanceConfig.IntegrityMonitoring).To(Equal(machinev1.IntegrityMonitoringPolicyDisabled))
+				g.Expect(providerConfig.ShieldedInstanceConfig.VirtualizedTrustedPlatformModule).To(Equal(machinev1.VirtualizedTrustedPlatformModulePolicyDisabled))
+			}
+
+			if !tc.expectDisabled {
+				g.Expect(providerConfig.ShieldedInstanceConfig).To(BeEquivalentTo(machinev1.GCPShieldedInstanceConfig{}))
+			}
+
+		})
+	}
+}
+
+func newTestMachineSet(namespace string, machineType string, guestAccelerators []machinev1.GCPGPUConfig, existingAnnotations map[string]string, disks []*machinev1.GCPDisk) (*machinev1.MachineSet, error) {
 	// Copy anntotations map so we don't modify the input
 	annotations := make(map[string]string)
 	for k, v := range existingAnnotations {
@@ -399,6 +456,7 @@ func newTestMachineSet(namespace string, machineType string, guestAccelerators [
 	machineProviderSpec := &machinev1.GCPMachineProviderSpec{
 		MachineType: machineType,
 		GPUs:        guestAccelerators,
+		Disks:       disks,
 	}
 	providerSpec, err := providerSpecFromMachine(machineProviderSpec)
 	if err != nil {
