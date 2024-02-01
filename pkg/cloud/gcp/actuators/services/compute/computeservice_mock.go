@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	compute "google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 )
@@ -21,6 +22,7 @@ const (
 	ErrGettingBackendService       = "errGettingBackendService"
 	ErrFailGroupGet                = "errFailGroupGet"
 	ErrGroupNotFound               = "errGroupNotFound"
+	ErrImageNotFound               = "errImageNotFound"
 	PatchBackendService            = "patchBackendService"
 	AddGroupSuccessfully           = "addGroupSuccessfully"
 )
@@ -246,4 +248,20 @@ func (c *GCPComputeServiceMock) BackendServiceGet(project string, region string,
 			},
 		},
 	}, nil
+}
+
+func (c *GCPComputeServiceMock) ImageGet(project string, image string) (*compute.Image, error) {
+	if project == ErrImageNotFound {
+		return nil, errors.New("imageGet request failed")
+	}
+
+	img := &compute.Image{
+		GuestOsFeatures: make([]*compute.GuestOsFeature, 0),
+	}
+
+	if image == "uefi" {
+		img.GuestOsFeatures = append(img.GuestOsFeatures, &compute.GuestOsFeature{Type: util.UEFICompatible})
+	}
+
+	return img, nil
 }
