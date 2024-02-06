@@ -28,6 +28,7 @@ type GCPComputeService interface {
 	RegionGet(project string, region string) (*compute.Region, error)
 	GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]int64, []string)
 	AcceleratorTypeGet(project string, zone string, acceleratorType string) (*compute.AcceleratorType, error)
+	ImageGet(project string, image string) (*compute.Image, error)
 	InstanceGroupsListInstances(project string, zone string, instanceGroup string, request *compute.InstanceGroupsListInstancesRequest) (*compute.InstanceGroupsListInstances, error)
 	InstanceGroupsAddInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
 	InstanceGroupsRemoveInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
@@ -190,4 +191,8 @@ func (c *computeService) AddInstanceGroupToBackendService(project string, region
 
 func (c *computeService) BackendServiceGet(project string, region string, backendServiceName string) (*compute.BackendService, error) {
 	return c.service.RegionBackendServices.Get(project, region, backendServiceName).Do()
+}
+
+func (c *computeService) ImageGet(project string, image string) (*compute.Image, error) {
+	return c.service.Images.Get(project, image).Do()
 }
