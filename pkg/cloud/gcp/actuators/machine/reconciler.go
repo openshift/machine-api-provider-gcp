@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
@@ -190,6 +191,21 @@ func (r *Reconciler) create() error {
 		},
 	}
 
+	var userTags map[string]string
+	if r.featureGates.Enabled(configv1.FeatureGateGCPLabelsTags) {
+		userTags, err = util.GetResourceManagerTags(r.Context, r.coreClient, r.tagService, r.providerSpec.ResourceManagerTags)
+		if err != nil {
+			switch err.(type) {
+			case *machinecontroller.MachineError:
+				return err
+			}
+			return machinecontroller.CreateMachine("failed to fetch user-defined tags for %s: %v", r.machine.Name, err)
+		}
+	}
+	instance.Params = &compute.InstanceParams{
+		ResourceManagerTags: userTags,
+	}
+
 	if automaticRestart, err := restartPolicyToBool(r.providerSpec.RestartPolicy, r.providerSpec.Preemptible); err != nil {
 		return machinecontroller.InvalidMachineConfiguration("failed to determine restart policy: %v", err)
 	} else {
@@ -247,10 +263,11 @@ func (r *Reconciler) create() error {
 			AutoDelete: disk.AutoDelete,
 			Boot:       disk.Boot,
 			InitializeParams: &compute.AttachedDiskInitializeParams{
-				DiskSizeGb:  disk.SizeGB,
-				DiskType:    fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
-				Labels:      labels,
-				SourceImage: srcImage,
+				DiskSizeGb:          disk.SizeGB,
+				DiskType:            fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
+				SourceImage:         srcImage,
+				Labels:              labels,
+				ResourceManagerTags: userTags,
 			},
 			DiskEncryptionKey: generateDiskEncryptionKey(disk.EncryptionKey, r.projectID),
 		})

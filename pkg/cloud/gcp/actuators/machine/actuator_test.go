@@ -10,8 +10,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	. "github.com/onsi/gomega"
+	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
@@ -211,6 +214,7 @@ func TestActuatorEvents(t *testing.T) {
 			name: "Delete machine event succeed",
 			operation: func(actuator *Actuator, machine *machinev1.Machine) {
 				actuator.computeClientBuilder = computeservice.MockBuilderFuncTypeNotFound
+				actuator.tagsClientBuilder = tagservice.NewMockTagServiceBuilder
 				actuator.Delete(context.Background(), machine)
 			},
 			event: "Deleted machine test",
@@ -278,6 +282,8 @@ func TestActuatorEvents(t *testing.T) {
 				CoreClient:           k8sClient,
 				EventRecorder:        eventRecorder,
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
+				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
+				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags}),
 			}
 
 			actuator := NewActuator(params)
@@ -376,6 +382,8 @@ func TestActuatorExists(t *testing.T) {
 			params := ActuatorParams{
 				CoreClient:           controllerfake.NewFakeClient(userDataSecret, credentialsSecret),
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
+				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
+				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags}),
 			}
 
 			actuator := NewActuator(params)

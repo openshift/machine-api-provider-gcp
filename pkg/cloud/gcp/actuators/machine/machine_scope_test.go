@@ -11,7 +11,9 @@ import (
 	. "github.com/onsi/gomega"
 	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -215,6 +217,8 @@ func TestNewMachineScope(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			gs := NewWithT(t)
+			tc.params.tagsClientBuilder = tagservice.NewMockTagServiceBuilder
+			tc.params.featureGates = featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags})
 			scope, err := newMachineScope(tc.params)
 
 			if tc.expectedError != nil {
@@ -414,6 +418,8 @@ func TestPatchMachine(t *testing.T) {
 				machine:              machine,
 				Context:              ctx,
 				computeClientBuilder: computeservice.MockBuilderFuncType,
+				tagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
+				featureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags}),
 			})
 
 			gs.Expect(err).ToNot(HaveOccurred())

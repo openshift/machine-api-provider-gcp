@@ -21,6 +21,7 @@ import (
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/machine"
 	machinesetcontroller "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/machineset"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/version"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -156,6 +157,7 @@ func main() {
 		CoreClient:           mgr.GetClient(),
 		EventRecorder:        mgr.GetEventRecorderFor("gcpcontroller"),
 		ComputeClientBuilder: computeservice.NewComputeService,
+		TagsClientBuilder:    tagservice.NewTagService,
 		FeatureGates:         featureGates,
 	})
 
