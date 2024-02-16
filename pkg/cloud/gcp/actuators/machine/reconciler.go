@@ -195,11 +195,7 @@ func (r *Reconciler) create() error {
 	if r.featureGates.Enabled(configv1.FeatureGateGCPLabelsTags) {
 		userTags, err = util.GetResourceManagerTags(r.Context, r.coreClient, r.tagService, r.providerSpec.ResourceManagerTags)
 		if err != nil {
-			switch err.(type) {
-			case *machinecontroller.MachineError:
-				return err
-			}
-			return machinecontroller.CreateMachine("failed to fetch user-defined tags for %s: %v", r.machine.Name, err)
+			return fmt.Errorf("failed to fetch user-defined tags for %s: %w", r.machine.Name, err)
 		}
 	}
 	instance.Params = &compute.InstanceParams{
