@@ -10,6 +10,7 @@ import (
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -31,6 +32,7 @@ type Actuator struct {
 	coreClient           controllerclient.Client
 	eventRecorder        record.EventRecorder
 	computeClientBuilder computeservice.BuilderFuncType
+	tagsClientBuilder    tagservice.BuilderFuncType
 	featureGates         featuregates.FeatureGate
 }
 
@@ -39,6 +41,7 @@ type ActuatorParams struct {
 	CoreClient           controllerclient.Client
 	EventRecorder        record.EventRecorder
 	ComputeClientBuilder computeservice.BuilderFuncType
+	TagsClientBuilder    tagservice.BuilderFuncType
 	FeatureGates         featuregates.FeatureGate
 }
 
@@ -48,6 +51,7 @@ func NewActuator(params ActuatorParams) *Actuator {
 		coreClient:           params.CoreClient,
 		eventRecorder:        params.EventRecorder,
 		computeClientBuilder: params.ComputeClientBuilder,
+		tagsClientBuilder:    params.TagsClientBuilder,
 		featureGates:         params.FeatureGates,
 	}
 }
@@ -70,6 +74,7 @@ func (a *Actuator) Create(ctx context.Context, machine *machinev1.Machine) error
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
 	})
 	if err != nil {
@@ -93,6 +98,7 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
 	})
 	if err != nil {
@@ -133,6 +139,7 @@ func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
 	})
 	if err != nil {
@@ -169,6 +176,7 @@ func (a *Actuator) Delete(ctx context.Context, machine *machinev1.Machine) error
 		coreClient:           a.coreClient,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
+		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
 	})
 	if err != nil {

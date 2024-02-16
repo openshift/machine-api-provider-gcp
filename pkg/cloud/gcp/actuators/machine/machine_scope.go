@@ -9,6 +9,7 @@ import (
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -24,6 +25,7 @@ type machineScopeParams struct {
 	coreClient           controllerclient.Client
 	machine              *machinev1.Machine
 	computeClientBuilder computeservice.BuilderFuncType
+	tagsClientBuilder    tagservice.BuilderFuncType
 	featureGates         featuregates.FeatureGate
 }
 
@@ -50,6 +52,11 @@ type machineScope struct {
 
 	// gcpLabelsTagsFeatureEnabled indicates whether FeatureGateGCPLabelsTags is enabled
 	gcpLabelsTagsFeatureEnabled bool
+
+	// tagService is for handling resource manager tags related operations.
+	tagService tagservice.TagService
+
+	featureGates featuregates.FeatureGate
 }
 
 // newMachineScope creates a new MachineScope from the supplied parameters.
@@ -87,10 +94,12 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		return nil, machineapierros.InvalidMachineConfiguration("error creating compute service: %v", err)
 	}
 
-	gcpLabelsTagsFeature := false
-	if params.featureGates != nil {
-		gcpLabelsTagsFeature = params.featureGates.Enabled(configv1.FeatureGateGCPLabelsTags)
-		klog.V(1).Infof("status of %v feature is %t", configv1.FeatureGateGCPLabelsTags, gcpLabelsTagsFeature)
+	var tagService tagservice.TagService
+	if params.featureGates.Enabled(configv1.FeatureGateGCPLabelsTags) {
+		tagService, err = params.tagsClientBuilder(params.Context, serviceAccountJSON)
+		if err != nil {
+			return nil, machineapierros.InvalidMachineConfiguration("error creating tag service: %v", err)
+		}
 	}
 
 	return &machineScope{
@@ -108,10 +117,11 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		providerStatus: providerStatus,
 		// Once set, they can not be changed. Otherwise, status change computation
 		// might be invalid and result in skipping the status update.
-		origMachine:                 params.machine.DeepCopy(),
-		origProviderStatus:          providerStatus.DeepCopy(),
-		machineToBePatched:          controllerclient.MergeFrom(params.machine.DeepCopy()),
-		gcpLabelsTagsFeatureEnabled: gcpLabelsTagsFeature,
+		origMachine:        params.machine.DeepCopy(),
+		origProviderStatus: providerStatus.DeepCopy(),
+		machineToBePatched: controllerclient.MergeFrom(params.machine.DeepCopy()),
+		featureGates:       params.featureGates,
+		tagService:         tagService,
 	}, nil
 }
 

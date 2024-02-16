@@ -1,15 +1,22 @@
 package machine
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/googleapis/gax-go/v2/apierror"
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/api/machine/v1beta1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
+	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
+	tags "google.golang.org/api/cloudresourcemanager/v3"
 	compute "google.golang.org/api/compute/v1"
 	googleapi "google.golang.org/api/googleapi"
 	corev1 "k8s.io/api/core/v1"
@@ -442,6 +449,13 @@ func TestCreate(t *testing.T) {
 				Zone:                "test-zone",
 				MachineType:         "n2d-standard-4",
 				ConfidentialCompute: machinev1.ConfidentialComputePolicyEnabled,
+				ResourceManagerTags: []machinev1.ResourceManagerTag{
+					{
+						ParentID: "openshift",
+						Key:      "key1",
+						Value:    "value1",
+					},
+				},
 			},
 			validateInstance: func(t *testing.T, instance *compute.Instance) {
 				if instance.ConfidentialInstanceConfig.EnableConfidentialCompute != true {
@@ -449,6 +463,45 @@ func TestCreate(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "failed to fetch resource manager tags",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region: "test-region",
+				Zone:   "test-zone",
+				ResourceManagerTags: []machinev1.ResourceManagerTag{
+					{
+						ParentID: "openshift",
+						Key:      "key2",
+						Value:    "value2",
+					},
+				},
+			},
+			expectedError: errors.New("failed to fetch user-defined tags for : failed to fetch openshift/key2/value2 tag details: googleapi: Error 500: Internal error while fetching 'openshift/key2/value2'"),
+		},
+	}
+
+	mockTagService := tagservice.NewMockTagService()
+	mockTagService.MockGetNamespacedName = func(ctx context.Context, name string) (*tags.TagValue, error) {
+		switch name {
+		case "openshift/key1/value1":
+			return &tags.TagValue{
+				Name:           "tagValues/0055629312",
+				Parent:         "tagKeys/0076293608",
+				NamespacedName: name,
+			}, nil
+		case "openshift/key2/value2":
+			apiErr, _ := apierror.FromError(fmt.Errorf("%w", &googleapi.Error{
+				Code:    http.StatusInternalServerError,
+				Message: "Internal error while fetching 'openshift/key2/value2'",
+			}))
+			return nil, apiErr
+		default:
+			apiErr, _ := apierror.FromError(fmt.Errorf("%w", &googleapi.Error{
+				Code:    http.StatusNotFound,
+				Message: fmt.Sprintf("%s tag does not exist", name),
+			}))
+			return nil, apiErr
+		}
 	}
 
 	for _, tc := range cases {
@@ -467,6 +520,31 @@ func TestCreate(t *testing.T) {
 				labels = tc.labels
 			}
 
+			infraObj := &configv1.Infrastructure{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster",
+				},
+				Spec: configv1.InfrastructureSpec{
+					PlatformSpec: configv1.PlatformSpec{
+						Type: configv1.GCPPlatformType,
+					},
+				},
+				Status: configv1.InfrastructureStatus{
+					InfrastructureName: "test-748kjf",
+					PlatformStatus: &configv1.PlatformStatus{
+						Type: configv1.GCPPlatformType,
+						GCP:  &configv1.GCPPlatformStatus{},
+					},
+				},
+			}
+
+			clientBuilder := controllerfake.NewClientBuilder()
+			clientBuilder.WithObjects(infraObj)
+			if tc.secret != nil {
+				clientBuilder.WithRuntimeObjects(tc.secret)
+			}
+			fakeClient := clientBuilder.WithScheme(scheme.Scheme).Build()
+
 			machineScope := machineScope{
 				machine: &machinev1.Machine{
 					ObjectMeta: metav1.ObjectMeta{
@@ -475,18 +553,16 @@ func TestCreate(t *testing.T) {
 						Labels:    labels,
 					},
 				},
-				coreClient:     controllerfake.NewFakeClient(),
+				coreClient:     fakeClient,
 				providerSpec:   providerSpec,
 				providerStatus: &machinev1.GCPMachineProviderStatus{},
 				computeService: mockComputeService,
 				projectID:      providerSpec.ProjectID,
+				featureGates:   featuregates.NewFeatureGate([]configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags}, nil),
+				tagService:     mockTagService,
 			}
 
 			reconciler := newReconciler(&machineScope)
-
-			if tc.secret != nil {
-				reconciler.coreClient = controllerfake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects(tc.secret).Build()
-			}
 
 			if tc.mockInstancesInsert != nil {
 				mockComputeService.MockInstancesInsert = tc.mockInstancesInsert
