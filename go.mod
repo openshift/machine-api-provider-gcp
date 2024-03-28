@@ -7,6 +7,7 @@ toolchain go1.21.0
 require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/go-logr/logr v1.4.1
+	github.com/googleapis/gax-go/v2 v2.11.0
 	github.com/onsi/ginkgo/v2 v2.15.0
 	github.com/onsi/gomega v1.31.1
 	github.com/openshift/api v0.0.0-20240124164020-e2ce40831f2e
@@ -62,7 +63,6 @@ require (
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.4.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
-	github.com/googleapis/gax-go/v2 v2.11.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/gregjones/httpcache v0.0.0-20180305231024-9cad4c3443a7 // indirect
 	github.com/imdario/mergo v0.3.13 // indirect
