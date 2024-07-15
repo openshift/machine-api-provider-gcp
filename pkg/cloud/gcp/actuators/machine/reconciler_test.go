@@ -10,6 +10,7 @@ import (
 
 	"github.com/googleapis/gax-go/v2/apierror"
 	configv1 "github.com/openshift/api/config/v1"
+	openshiftfeatures "github.com/openshift/api/features"
 	"github.com/openshift/api/machine/v1beta1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
@@ -558,7 +559,7 @@ func TestCreate(t *testing.T) {
 				providerStatus: &machinev1.GCPMachineProviderStatus{},
 				computeService: mockComputeService,
 				projectID:      providerSpec.ProjectID,
-				featureGates:   featuregates.NewFeatureGate([]configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags}, nil),
+				featureGates:   featuregates.NewFeatureGate([]configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags}, nil),
 				tagService:     mockTagService,
 			}
 

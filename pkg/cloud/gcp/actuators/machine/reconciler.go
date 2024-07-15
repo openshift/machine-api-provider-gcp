@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	configv1 "github.com/openshift/api/config/v1"
+	openshiftfeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
@@ -192,7 +192,7 @@ func (r *Reconciler) create() error {
 	}
 
 	var userTags map[string]string
-	if r.featureGates.Enabled(configv1.FeatureGateGCPLabelsTags) {
+	if r.featureGates.Enabled(openshiftfeatures.FeatureGateGCPLabelsTags) {
 		userTags, err = util.GetResourceManagerTags(r.Context, r.coreClient, r.tagService, r.providerSpec.ResourceManagerTags)
 		if err != nil {
 			return fmt.Errorf("failed to fetch user-defined tags for %s: %w", r.machine.Name, err)

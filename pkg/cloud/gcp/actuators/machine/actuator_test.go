@@ -11,6 +11,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	configv1 "github.com/openshift/api/config/v1"
+	openshiftfeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
@@ -283,7 +284,7 @@ func TestActuatorEvents(t *testing.T) {
 				EventRecorder:        eventRecorder,
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
-				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags}),
+				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags}),
 			}
 
 			actuator := NewActuator(params)
@@ -383,7 +384,7 @@ func TestActuatorExists(t *testing.T) {
 				CoreClient:           controllerfake.NewFakeClient(userDataSecret, credentialsSecret),
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
-				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{configv1.FeatureGateGCPLabelsTags}),
+				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags}),
 			}
 
 			actuator := NewActuator(params)
