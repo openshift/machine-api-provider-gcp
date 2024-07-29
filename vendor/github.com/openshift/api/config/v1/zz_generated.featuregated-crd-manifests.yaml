@@ -311,7 +311,6 @@ infrastructures.config.openshift.io:
   FeatureGates:
   - BareMetalLoadBalancer
   - GCPClusterHostedDNS
-  - GCPLabelsTags
   - VSphereControlPlaneMachineSet
   - VSphereMultiVCenters
   FilenameOperatorName: config-operator

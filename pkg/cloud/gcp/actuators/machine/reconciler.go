@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	openshiftfeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
@@ -164,8 +163,7 @@ func (r *Reconciler) create() error {
 		return machinecontroller.InvalidMachineConfiguration("failed validating machine provider spec: %v", err)
 	}
 
-	labels, err := util.GetLabelsList(r.gcpLabelsTagsFeatureEnabled, r.coreClient,
-		r.machine.Labels[machinev1.MachineClusterIDLabel], r.providerSpec.Labels)
+	labels, err := util.GetLabelsList(r.coreClient, r.machine.Labels[machinev1.MachineClusterIDLabel], r.providerSpec.Labels)
 	if err != nil {
 		return fmt.Errorf("error getting user-defined labels for machine %s: %w", r.machine.Name, err)
 	}
@@ -191,12 +189,9 @@ func (r *Reconciler) create() error {
 		},
 	}
 
-	var userTags map[string]string
-	if r.featureGates.Enabled(openshiftfeatures.FeatureGateGCPLabelsTags) {
-		userTags, err = util.GetResourceManagerTags(r.Context, r.coreClient, r.tagService, r.providerSpec.ResourceManagerTags)
-		if err != nil {
-			return fmt.Errorf("failed to fetch user-defined tags for %s: %w", r.machine.Name, err)
-		}
+	userTags, err := util.GetResourceManagerTags(r.Context, r.coreClient, r.tagService, r.providerSpec.ResourceManagerTags)
+	if err != nil {
+		return fmt.Errorf("failed to fetch user-defined tags for %s: %w", r.machine.Name, err)
 	}
 	instance.Params = &compute.InstanceParams{
 		ResourceManagerTags: userTags,
@@ -249,8 +244,7 @@ func (r *Reconciler) create() error {
 			srcImage = googleapi.ResolveRelative(r.computeService.BasePath(), fmt.Sprintf("projects/%s/global/images/%s", r.projectID, disk.Image))
 		}
 
-		labels, err := util.GetLabelsList(r.gcpLabelsTagsFeatureEnabled, r.coreClient,
-			r.machine.Labels[machinev1.MachineClusterIDLabel], disk.Labels)
+		labels, err := util.GetLabelsList(r.coreClient, r.machine.Labels[machinev1.MachineClusterIDLabel], disk.Labels)
 		if err != nil {
 			return fmt.Errorf("error getting user-defined labels for machine disk %s: %w", r.machine.Name, err)
 		}
