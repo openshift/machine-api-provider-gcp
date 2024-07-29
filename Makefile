@@ -5,7 +5,7 @@ GOGCFLAGS ?= -gcflags=all="-N -l"
 endif
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.29
+ENVTEST_K8S_VERSION = 1.30
 
 VERSION     ?= $(shell git describe --always --abbrev=7)
 REPO_PATH   ?= github.com/openshift/machine-api-provider-gcp
@@ -82,7 +82,8 @@ test: unit ## Run tests
 
 .PHONY: unit
 unit: # Run unit test
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/bin)" ./hack/test.sh
+	# GCS bucket support will be going away, but explicitly enable it to use our own bucket.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/bin --use-deprecated-gcs=true --remote-bucket openshift-kubebuilder-tools)" ./hack/test.sh
 
 .PHONY: sec
 sec: # Run security static analysis
