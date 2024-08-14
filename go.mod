@@ -10,10 +10,10 @@ require (
 	github.com/googleapis/gax-go/v2 v2.12.0
 	github.com/onsi/ginkgo/v2 v2.17.1
 	github.com/onsi/gomega v1.32.0
-	github.com/openshift/api v0.0.0-20240715101244-b0adfa1f6357
+	github.com/openshift/api v0.0.0-20240731195412-e863d9f8a215
 	github.com/openshift/client-go v0.0.0-20240528061634-b054aa794d87
-	github.com/openshift/library-go v0.0.0-20240116081341-964bcb3f545c
-	github.com/openshift/machine-api-operator v0.2.1-0.20240708094115-80301b13a9d2
+	github.com/openshift/library-go v0.0.0-20240723172506-8bb8fe6cc56d
+	github.com/openshift/machine-api-operator v0.2.1-0.20240813104042-5af274324af8
 	golang.org/x/oauth2 v0.18.0
 	google.golang.org/api v0.143.0
 	k8s.io/api v0.30.2
@@ -44,7 +44,6 @@ require (
 	github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
-	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-errors/errors v1.4.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
