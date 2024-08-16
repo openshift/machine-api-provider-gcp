@@ -20,6 +20,7 @@ import (
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -192,7 +193,7 @@ func (r *Reconciler) create() error {
 	}
 
 	var userTags map[string]string
-	if r.featureGates.Enabled(openshiftfeatures.FeatureGateGCPLabelsTags) {
+	if r.featureGates.Enabled(featuregate.Feature(openshiftfeatures.FeatureGateGCPLabelsTags)) {
 		userTags, err = util.GetResourceManagerTags(r.Context, r.coreClient, r.tagService, r.providerSpec.ResourceManagerTags)
 		if err != nil {
 			return fmt.Errorf("failed to fetch user-defined tags for %s: %w", r.machine.Name, err)

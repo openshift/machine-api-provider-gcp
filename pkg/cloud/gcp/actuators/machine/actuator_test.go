@@ -10,10 +10,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	. "github.com/onsi/gomega"
-	configv1 "github.com/openshift/api/config/v1"
 	openshiftfeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
+	"github.com/openshift/library-go/pkg/features"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
@@ -22,7 +21,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	controllerfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -279,12 +280,14 @@ func TestActuatorEvents(t *testing.T) {
 			}
 			gs.Eventually(getMachine, timeout).Should(Succeed())
 
+			gate, err := NewDefaultMutableFeatureGate(nil)
+			gs.Expect(err).ToNot(HaveOccurred())
 			params := ActuatorParams{
 				CoreClient:           k8sClient,
 				EventRecorder:        eventRecorder,
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
-				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags}),
+				FeatureGates:         gate,
 			}
 
 			actuator := NewActuator(params)
@@ -380,16 +383,20 @@ func TestActuatorExists(t *testing.T) {
 				}
 			}
 
+			gate, err := NewDefaultMutableFeatureGate(nil)
+			if err != nil {
+				t.Fatalf("failed to configure feature gates: %s", err.Error())
+			}
 			params := ActuatorParams{
 				CoreClient:           controllerfake.NewFakeClient(userDataSecret, credentialsSecret),
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
-				FeatureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags}),
+				FeatureGates:         gate,
 			}
 
 			actuator := NewActuator(params)
 
-			_, err := actuator.Exists(nil, machine)
+			_, err = actuator.Exists(nil, machine)
 
 			if tc.expectError {
 				if err == nil {
@@ -403,4 +410,20 @@ func TestActuatorExists(t *testing.T) {
 		})
 	}
 
+}
+
+func NewDefaultMutableFeatureGate(gateConfig map[string]bool) (featuregate.MutableFeatureGate, error) {
+	defaultMutableGate := feature.DefaultMutableFeatureGate
+	_, err := features.NewFeatureGateOptions(defaultMutableGate, openshiftfeatures.SelfManaged, openshiftfeatures.FeatureGateMachineAPIMigration, openshiftfeatures.FeatureGateGCPLabelsTags)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set up default feature gate: %w", err)
+	}
+
+	if len(gateConfig) > 0 {
+		err = defaultMutableGate.SetFromMap(gateConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set features from map: %w", err)
+		}
+	}
+	return defaultMutableGate, nil
 }

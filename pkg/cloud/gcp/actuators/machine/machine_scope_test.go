@@ -10,9 +10,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	configv1 "github.com/openshift/api/config/v1"
-	openshiftfeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
@@ -219,7 +217,11 @@ func TestNewMachineScope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			gs := NewWithT(t)
 			tc.params.tagsClientBuilder = tagservice.NewMockTagServiceBuilder
-			tc.params.featureGates = featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags})
+
+			gate, err := NewDefaultMutableFeatureGate(nil)
+			gs.Expect(err).To(Not(HaveOccurred()))
+			tc.params.featureGates = gate
+
 			scope, err := newMachineScope(tc.params)
 
 			if tc.expectedError != nil {
@@ -414,13 +416,16 @@ func TestPatchMachine(t *testing.T) {
 			}
 			gs.Eventually(getMachine, timeout).Should(Succeed())
 
+			gate, err := NewDefaultMutableFeatureGate(nil)
+			gs.Expect(err).To(Not(HaveOccurred()))
+
 			machineScope, err := newMachineScope(machineScopeParams{
 				coreClient:           k8sClient,
 				machine:              machine,
 				Context:              ctx,
 				computeClientBuilder: computeservice.MockBuilderFuncType,
 				tagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
-				featureGates:         featuregates.NewFeatureGate(nil, []configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags}),
+				featureGates:         gate,
 			})
 
 			gs.Expect(err).ToNot(HaveOccurred())

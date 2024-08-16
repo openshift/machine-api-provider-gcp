@@ -10,10 +10,8 @@ import (
 
 	"github.com/googleapis/gax-go/v2/apierror"
 	configv1 "github.com/openshift/api/config/v1"
-	openshiftfeatures "github.com/openshift/api/features"
 	"github.com/openshift/api/machine/v1beta1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
@@ -546,6 +544,12 @@ func TestCreate(t *testing.T) {
 			}
 			fakeClient := clientBuilder.WithScheme(scheme.Scheme).Build()
 
+			// we expect the GCPLabelsTags feature gate to be enabled here
+			gate, err := NewDefaultMutableFeatureGate(map[string]bool{"GCPLabelsTags": true})
+			if err != nil {
+				t.Fatalf("failed to  configure feature gates: %s", err.Error())
+			}
+
 			machineScope := machineScope{
 				machine: &machinev1.Machine{
 					ObjectMeta: metav1.ObjectMeta{
@@ -559,7 +563,7 @@ func TestCreate(t *testing.T) {
 				providerStatus: &machinev1.GCPMachineProviderStatus{},
 				computeService: mockComputeService,
 				projectID:      providerSpec.ProjectID,
-				featureGates:   featuregates.NewFeatureGate([]configv1.FeatureGateName{openshiftfeatures.FeatureGateGCPLabelsTags}, nil),
+				featureGates:   gate,
 				tagService:     mockTagService,
 			}
 
@@ -569,7 +573,7 @@ func TestCreate(t *testing.T) {
 				mockComputeService.MockInstancesInsert = tc.mockInstancesInsert
 			}
 
-			err := reconciler.create()
+			err = reconciler.create()
 
 			if tc.expectedCondition != nil {
 				if reconciler.providerStatus.Conditions[0].Type != tc.expectedCondition.Type {
@@ -588,7 +592,7 @@ func TestCreate(t *testing.T) {
 
 			if tc.expectedError != nil {
 				if err == nil {
-					t.Error("reconciler was expected to return error")
+					t.Errorf("reconciler was expected to return error: %s", tc.expectedError.Error())
 				}
 				if err.Error() != tc.expectedError.Error() {
 					t.Errorf("Expected: %v, got %v", tc.expectedError, err)
