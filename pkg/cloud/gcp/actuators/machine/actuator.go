@@ -8,11 +8,11 @@ import (
 	"fmt"
 
 	machinev1 "github.com/openshift/api/machine/v1beta1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	controllerclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,7 +33,7 @@ type Actuator struct {
 	eventRecorder        record.EventRecorder
 	computeClientBuilder computeservice.BuilderFuncType
 	tagsClientBuilder    tagservice.BuilderFuncType
-	featureGates         featuregates.FeatureGate
+	featureGates         featuregate.FeatureGate
 }
 
 // ActuatorParams holds parameter information for Actuator.
@@ -42,7 +42,7 @@ type ActuatorParams struct {
 	EventRecorder        record.EventRecorder
 	ComputeClientBuilder computeservice.BuilderFuncType
 	TagsClientBuilder    tagservice.BuilderFuncType
-	FeatureGates         featuregates.FeatureGate
+	FeatureGates         featuregate.FeatureGate
 }
 
 // NewActuator returns an actuator.

@@ -6,11 +6,11 @@ import (
 
 	openshiftfeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
-	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
+	"k8s.io/component-base/featuregate"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +26,7 @@ type machineScopeParams struct {
 	machine              *machinev1.Machine
 	computeClientBuilder computeservice.BuilderFuncType
 	tagsClientBuilder    tagservice.BuilderFuncType
-	featureGates         featuregates.FeatureGate
+	featureGates         featuregate.FeatureGate
 }
 
 // machineScope defines a scope defined around a machine and its cluster.
@@ -56,7 +56,7 @@ type machineScope struct {
 	// tagService is for handling resource manager tags related operations.
 	tagService tagservice.TagService
 
-	featureGates featuregates.FeatureGate
+	featureGates featuregate.FeatureGate
 }
 
 // newMachineScope creates a new MachineScope from the supplied parameters.
@@ -95,7 +95,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 	}
 
 	var tagService tagservice.TagService
-	if params.featureGates.Enabled(openshiftfeatures.FeatureGateGCPLabelsTags) {
+	if params.featureGates.Enabled(featuregate.Feature(openshiftfeatures.FeatureGateGCPLabelsTags)) {
 		tagService, err = params.tagsClientBuilder(params.Context, serviceAccountJSON)
 		if err != nil {
 			return nil, machineapierros.InvalidMachineConfiguration("error creating tag service: %v", err)
