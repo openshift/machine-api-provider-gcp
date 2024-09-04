@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	. "github.com/onsi/gomega"
+	configv1 "github.com/openshift/api/config/v1"
 	openshiftfeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	"github.com/openshift/library-go/pkg/features"
@@ -48,7 +49,10 @@ func TestActuatorEvents(t *testing.T) {
 	timeout := 10 * time.Second
 
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "..", "..", "config", "crds")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "..", "..", "..", "config", "crds"),
+			filepath.Join("..", "..", "..", "..", "..", "vendor", "github.com", "openshift", "api", "config", "v1", "zz_generated.crd-manifests"),
+		},
 	}
 
 	cfg, err := testEnv.Start()
@@ -125,6 +129,28 @@ func TestActuatorEvents(t *testing.T) {
 	})
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(providerSpec).ToNot(BeNil())
+
+	infraObj := &configv1.Infrastructure{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.InfrastructureSpec{
+			PlatformSpec: configv1.PlatformSpec{
+				Type: configv1.GCPPlatformType,
+			},
+		},
+		Status: configv1.InfrastructureStatus{
+			InfrastructureName: "test-748kjf",
+			PlatformStatus: &configv1.PlatformStatus{
+				Type: configv1.GCPPlatformType,
+				GCP:  &configv1.GCPPlatformStatus{},
+			},
+		},
+	}
+	g.Expect(k8sClient.Create(context.Background(), infraObj)).To(Succeed())
+	defer func() {
+		g.Expect(k8sClient.Delete(context.Background(), infraObj)).To(Succeed())
+	}()
 
 	cases := []struct {
 		name      string
@@ -414,7 +440,7 @@ func TestActuatorExists(t *testing.T) {
 
 func NewDefaultMutableFeatureGate(gateConfig map[string]bool) (featuregate.MutableFeatureGate, error) {
 	defaultMutableGate := feature.DefaultMutableFeatureGate
-	_, err := features.NewFeatureGateOptions(defaultMutableGate, openshiftfeatures.SelfManaged, openshiftfeatures.FeatureGateMachineAPIMigration, openshiftfeatures.FeatureGateGCPLabelsTags)
+	_, err := features.NewFeatureGateOptions(defaultMutableGate, openshiftfeatures.SelfManaged, openshiftfeatures.FeatureGateMachineAPIMigration)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set up default feature gate: %w", err)
 	}
