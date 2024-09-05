@@ -84,7 +84,7 @@ func main() {
 
 	// Sets up feature gates
 	defaultMutableGate := feature.DefaultMutableFeatureGate
-	gateOpts, err := features.NewFeatureGateOptions(defaultMutableGate, apifeatures.SelfManaged, apifeatures.FeatureGateGCPLabelsTags, apifeatures.FeatureGateMachineAPIMigration)
+	gateOpts, err := features.NewFeatureGateOptions(defaultMutableGate, apifeatures.SelfManaged, apifeatures.FeatureGateMachineAPIMigration)
 	if err != nil {
 		klog.Fatalf("Error setting up feature gates: %v", err)
 	}
@@ -146,7 +146,6 @@ func main() {
 		klog.Infof("Warnings setting feature gates from flags: %v", warnings)
 	}
 	klog.Infof("FeatureGateMachineAPIMigration initialised: %t", defaultMutableGate.Enabled(featuregate.Feature(apifeatures.FeatureGateMachineAPIMigration)))
-	klog.Infof("FeatureGateGCPLabelsTags initialised: %t", defaultMutableGate.Enabled(featuregate.Feature(apifeatures.FeatureGateGCPLabelsTags)))
 
 	stopSignalContext := ctrl.SetupSignalHandler()
 

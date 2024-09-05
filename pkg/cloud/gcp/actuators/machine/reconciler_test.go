@@ -544,8 +544,7 @@ func TestCreate(t *testing.T) {
 			}
 			fakeClient := clientBuilder.WithScheme(scheme.Scheme).Build()
 
-			// we expect the GCPLabelsTags feature gate to be enabled here
-			gate, err := NewDefaultMutableFeatureGate(map[string]bool{"GCPLabelsTags": true})
+			gate, err := NewDefaultMutableFeatureGate(nil)
 			if err != nil {
 				t.Fatalf("failed to  configure feature gates: %s", err.Error())
 			}
