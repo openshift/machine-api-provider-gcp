@@ -149,7 +149,7 @@ func (c *GCPComputeServiceMock) RegionGet(project string, region string) (*compu
 	return &compute.Region{Quotas: nil}, nil
 }
 
-func (c *GCPComputeServiceMock) GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]int64, []string) {
+func (c *GCPComputeServiceMock) GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]GpuInfo, []string) {
 	var compatibleMachineType = []string{"n1-test-machineType"}
 	return nil, compatibleMachineType
 }
