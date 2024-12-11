@@ -280,8 +280,22 @@ func (r *Reconciler) create() error {
 		Items: metadataItems,
 	}
 
-	_, err = r.computeService.InstancesInsert(r.projectID, zone, instance)
-	if err != nil {
+	operation, err := r.computeService.InstancesInsert(r.projectID, zone, instance)
+	if err != nil || operation.Error != nil || len(operation.HttpErrorMessage) > 0 {
+		var errMsg string
+		switch {
+		case err != nil:
+			errMsg = err.Error()
+		case operation.Error != nil:
+			errMsg = "internal errors from gcp"
+			for _, e := range operation.Error.Errors {
+				errMsg = fmt.Sprintf("%s: %s", errMsg, e.Code)
+			}
+		case len(operation.HttpErrorMessage) > 0:
+			errMsg = operation.HttpErrorMessage
+		default:
+			errMsg = "something weird happened"
+		}
 		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
 			Name:      r.machine.Name,
 			Namespace: r.machine.Namespace,
@@ -290,7 +304,7 @@ func (r *Reconciler) create() error {
 		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&metav1.Condition{
 			Type:    string(machinev1.MachineCreated),
 			Reason:  machineCreationFailedReason,
-			Message: err.Error(),
+			Message: errMsg,
 			Status:  metav1.ConditionFalse,
 		}); reconcileWithCloudError != nil {
 			klog.Errorf("Failed to reconcile machine with cloud state: %v", reconcileWithCloudError)
@@ -303,7 +317,7 @@ func (r *Reconciler) create() error {
 				return machinecontroller.InvalidMachineConfiguration("error launching instance: %v", googleError.Error())
 			}
 		}
-		return fmt.Errorf("failed to create instance via compute service: %v", err)
+		return fmt.Errorf("failed to create instance via compute service: %s", errMsg)
 	}
 	return r.reconcileMachineWithCloudState(nil)
 }
