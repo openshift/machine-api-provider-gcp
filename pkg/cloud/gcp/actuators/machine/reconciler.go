@@ -536,29 +536,28 @@ func (r *Reconciler) exists() (bool, error) {
 	if err := validateMachine(*r.machine, *r.providerSpec); err != nil {
 		return false, fmt.Errorf("failed validating machine provider spec: %v", err)
 	}
-	zone := r.providerSpec.Zone
-	// Need to verify that our project/zone exists before checking machine, as
-	// invalid project/zone produces same 404 error as no machine.
-	if err := r.validateZone(); err != nil {
-		if isNotFoundError(err) {
-			// this error type bubbles back up to the machine-controller to allow
-			// us to delete machines that were never properly created due to
-			// invalid zone.
 
+	_, err := r.computeService.InstancesGet(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	if err != nil {
+		// InvalidMachineConfiguration error type bubbles back up to the machine-controller to allow
+		// us to delete machines that were never properly created due to
+		// invalid zone or project.
+		if isProjectNotFoundError(err, r.projectID) {
+			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Project does not exist", r.projectID))
+		}
+
+		if isInvalidZone(err) {
 			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
 		}
-		return false, fmt.Errorf("unable to verify project/zone exists: %v/%v; err: %v", r.projectID, zone, err)
+
+		if isNotFoundError(err) {
+			klog.Infof("%s: Machine does not exist", r.machine.Name)
+			return false, nil
+		}
+		return false, fmt.Errorf("error getting running instances: %v", err)
 	}
 
-	instance, err := r.computeService.InstancesGet(r.projectID, zone, r.machine.Name)
-	if instance != nil && err == nil {
-		return true, nil
-	}
-	if isNotFoundError(err) {
-		klog.Infof("%s: Machine does not exist", r.machine.Name)
-		return false, nil
-	}
-	return false, fmt.Errorf("error getting running instances: %v", err)
+	return true, nil
 }
 
 // Returns true if machine exists.
@@ -601,15 +600,38 @@ func (r *Reconciler) delete() error {
 	return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 }
 
-func (r *Reconciler) validateZone() error {
-	_, err := r.computeService.ZonesGet(r.projectID, r.providerSpec.Zone)
-	return err
-}
-
 func isNotFoundError(err error) bool {
 	switch t := err.(type) {
 	case *googleapi.Error:
 		return t.Code == 404
+	}
+	return false
+}
+
+func isProjectNotFoundError(err error, projectID string) bool {
+	switch t := err.(type) {
+	case *googleapi.Error:
+		if t.Code == 404 {
+			for _, e := range t.Errors {
+				if strings.Contains(e.Message, fmt.Sprintf("'projects/%s'", projectID)) && e.Reason == "notFound" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isInvalidZone(err error) bool {
+	switch t := err.(type) {
+	case *googleapi.Error:
+		if t.Code == 400 {
+			for _, e := range t.Errors {
+				if strings.Contains(e.Message, "'zone'") && e.Reason == "invalid" {
+					return true
+				}
+			}
+		}
 	}
 	return false
 }
