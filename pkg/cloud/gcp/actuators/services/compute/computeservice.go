@@ -26,7 +26,7 @@ type GCPComputeService interface {
 	TargetPoolsRemoveInstance(project string, region string, name string, instance string) (*compute.Operation, error)
 	MachineTypesGet(project string, machineType string, zone string) (*compute.MachineType, error)
 	RegionGet(project string, region string) (*compute.Region, error)
-	GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]int64, []string)
+	GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]GpuInfo, []string)
 	AcceleratorTypeGet(project string, zone string, acceleratorType string) (*compute.AcceleratorType, error)
 	InstanceGroupsListInstances(project string, zone string, instanceGroup string, request *compute.InstanceGroupsListInstancesRequest) (*compute.InstanceGroupsListInstances, error)
 	InstanceGroupsAddInstances(project string, zone string, instance string, instanceGroup string) (*compute.Operation, error)
@@ -120,17 +120,25 @@ func (c *computeService) MachineTypesGet(project string, zone string, machineTyp
 	return c.service.MachineTypes.Get(project, zone, machineType).Do()
 }
 
+type GpuInfo struct {
+	Count int64
+	Type  string
+}
+
 // GPUCompatibleMachineTypesList function lists machineTypes available in the zone and return map of A2 family and slice of N1 family machineTypes
-func (c *computeService) GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]int64, []string) {
+func (c *computeService) GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]GpuInfo, []string) {
 	req := c.service.MachineTypes.List(project, zone)
 	var (
-		a2MachineFamily = map[string]int64{}
+		a2MachineFamily = map[string]GpuInfo{}
 		n1MachineFamily []string
 	)
 	if err := req.Pages(ctx, func(page *compute.MachineTypeList) error {
 		for _, machineType := range page.Items {
 			if strings.HasPrefix(machineType.Name, "a2") {
-				a2MachineFamily[machineType.Name] = machineType.Accelerators[0].GuestAcceleratorCount
+				a2MachineFamily[machineType.Name] = GpuInfo{
+					Count: machineType.Accelerators[0].GuestAcceleratorCount,
+					Type:  machineType.Accelerators[0].GuestAcceleratorType,
+				}
 			} else if strings.HasPrefix(machineType.Name, "n1") {
 				n1MachineFamily = append(n1MachineFamily, machineType.Name)
 			}
