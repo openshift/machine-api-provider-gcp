@@ -50,6 +50,8 @@ func newReconciler(scope *machineScope) *Reconciler {
 }
 
 var (
+	// the keys have been sourced from https://cloud.google.com/compute/docs/gpus/
+	// the values have been sourced from https://github.com/googleapis/google-api-go-client/blob/main/compute/v1/compute-gen.go
 	supportedGpuTypes = map[string]string{
 		"nvidia-tesla-k80":  "NVIDIA_K80_GPUS",
 		"nvidia-tesla-p100": "NVIDIA_P100_GPUS",
@@ -57,6 +59,7 @@ var (
 		"nvidia-tesla-a100": "NVIDIA_A100_GPUS",
 		"nvidia-tesla-p4":   "NVIDIA_P4_GPUS",
 		"nvidia-tesla-t4":   "NVIDIA_T4_GPUS",
+		"nvidia-a100-80gb":  "NVIDIA_A100_80GB_GPUS",
 	}
 )
 
@@ -87,20 +90,12 @@ func restartPolicyToBool(policy machinev1.GCPRestartPolicyType, preemptible bool
 }
 
 // machineTypeAcceleratorCount represents nvidia-tesla-A100 GPUs which are only compatible with A2 machine family
-func (r *Reconciler) checkQuota(machineTypeAcceleratorCount int64) error {
+func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) error {
 	region, err := r.computeService.RegionGet(r.projectID, r.providerSpec.Region)
 	if err != nil {
 		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Failed to get region %s via compute service: %v", r.providerSpec.Region, err))
 	}
 	quotas := region.Quotas
-	var guestAccelerators = []machinev1.GCPGPUConfig{}
-	// When the machine type has associated accelerator instances (A2 machine family), accelerators will be nvidia-tesla-A100s.
-	// Additional guest accelerators are not allowed so ignore the providerSpec GuestAccelerators.
-	if machineTypeAcceleratorCount != 0 {
-		guestAccelerators = append(guestAccelerators, machinev1.GCPGPUConfig{Type: "nvidia-tesla-a100", Count: int32(machineTypeAcceleratorCount)})
-	} else {
-		guestAccelerators = r.providerSpec.GPUs
-	}
 	// validate zone and then quota
 	// guestAccelerators slice can not store more than 1 element.
 	// More than one accelerator included in request results in error -> googleapi: Error 413: Value for field 'resource.guestAccelerators' is too large: maximum size 1 element(s); actual size 2., fieldSizeTooLarge
@@ -133,6 +128,7 @@ func (r *Reconciler) checkQuota(machineTypeAcceleratorCount int64) error {
 }
 
 func (r *Reconciler) validateGuestAccelerators() error {
+	// Note(elmiko) this is known to have an error in that non a2 instances with GPUs (eg a3 types) will bypass this check, which is fine for now.
 	if len(r.providerSpec.GPUs) == 0 && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
 		// no accelerators to validate so return nil
 		return nil
@@ -145,17 +141,21 @@ func (r *Reconciler) validateGuestAccelerators() error {
 	}
 	a2MachineFamily, n1MachineFamily := r.computeService.GPUCompatibleMachineTypesList(r.providerSpec.ProjectID, r.providerSpec.Zone, r.Context)
 	machineType := r.providerSpec.MachineType
-	switch {
-	case a2MachineFamily[machineType] != 0:
+	if gpuInfo, ok := a2MachineFamily[machineType]; ok {
 		// a2 family machine - has fixed type and count of GPUs
-		return r.checkQuota(a2MachineFamily[machineType])
-	case containsString(n1MachineFamily, machineType):
-		// n1 family machine
-		return r.checkQuota(0)
-	default:
-		// any other machine type
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("MachineType %s is not available in the zone %s.", r.providerSpec.MachineType, r.providerSpec.Zone))
+		guestAccelerators := []machinev1.GCPGPUConfig{
+			{
+				Type:  gpuInfo.Type,
+				Count: int32(gpuInfo.Count),
+			},
+		}
+		return r.checkQuota(guestAccelerators)
+	} else if containsString(n1MachineFamily, machineType) {
+		return r.checkQuota(r.providerSpec.GPUs)
 	}
+
+	// any other machine type
+	return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("MachineType %s is not available in the zone %s.", r.providerSpec.MachineType, r.providerSpec.Zone))
 }
 
 // Create creates machine if and only if machine exists, handled by cluster-api
