@@ -113,6 +113,9 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 	if r.providerSpec.Preemptible {
 		metric = "PREEMPTIBLE_" + metric
 	}
+
+	klog.V(0).Infof("GCP-QUOTAS: %+v", quotas)
+
 	// check quota for GA
 	for i, q := range quotas {
 		if q.Metric == metric {
