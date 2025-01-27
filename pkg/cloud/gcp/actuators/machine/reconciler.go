@@ -187,6 +187,10 @@ func (r *Reconciler) create() error {
 			EnableVtpm:                true,
 			EnableIntegrityMonitoring: true,
 		},
+		ConfidentialInstanceConfig: &compute.ConfidentialInstanceConfig{
+			EnableConfidentialCompute: false,
+			ConfidentialInstanceType:  "",
+		},
 	}
 
 	userTags, err := util.GetResourceManagerTags(r.Context, r.coreClient, r.tagService, r.providerSpec.ResourceManagerTags)
@@ -218,6 +222,18 @@ func (r *Reconciler) create() error {
 	if r.providerSpec.ConfidentialCompute == machinev1.ConfidentialComputePolicyEnabled {
 		instance.ConfidentialInstanceConfig = &compute.ConfidentialInstanceConfig{EnableConfidentialCompute: true}
 	}
+
+	if r.providerSpec.ConfidentialInstanceType != "" {
+		switch r.providerSpec.ConfidentialInstanceType {
+		case machinev1.ConfidentialVMTechSEV:
+			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV"
+		case machinev1.ConfidentialVMTechSEVSNP:
+			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV_SNP"
+		default:
+			return machinecontroller.InvalidMachineConfiguration("unknown confidential instance type %s", r.providerSpec.ConfidentialInstanceType)
+		}
+	}
+
 	var guestAccelerators = []*compute.AcceleratorConfig{}
 
 	if l := len(r.providerSpec.GPUs); l == 1 {
