@@ -538,6 +538,66 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "confidential compute AMDEncryptedVirtualization",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:              "test-region",
+				Zone:                "test-zone",
+				MachineType:         "n2d-standard-4",
+				ConfidentialCompute: machinev1.ConfidentialComputePolicySEV,
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				ResourceManagerTags: []machinev1.ResourceManagerTag{
+					{
+						ParentID: "openshift",
+						Key:      "key1",
+						Value:    "value1",
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.ConfidentialInstanceConfig.EnableConfidentialCompute != true {
+					t.Errorf("Expected EnableConfidentialCompute to be true, Got: %t", instance.ConfidentialInstanceConfig.EnableConfidentialCompute)
+				}
+				if instance.ConfidentialInstanceConfig.ConfidentialInstanceType != "SEV" {
+					t.Errorf("Expected ConfidentialInstanceType to be SEV, Got: %s", instance.ConfidentialInstanceConfig.ConfidentialInstanceType)
+				}
+			},
+		},
+		{
+			name: "confidential compute AMDEncryptedVirtualizationNestedPaging",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:              "test-region",
+				Zone:                "test-zone",
+				MachineType:         "n2d-standard-4",
+				ConfidentialCompute: machinev1.ConfidentialComputePolicySEVSNP,
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				ResourceManagerTags: []machinev1.ResourceManagerTag{
+					{
+						ParentID: "openshift",
+						Key:      "key1",
+						Value:    "value1",
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.ConfidentialInstanceConfig.EnableConfidentialCompute != true {
+					t.Errorf("Expected EnableConfidentialCompute to be true, Got: %t", instance.ConfidentialInstanceConfig.EnableConfidentialCompute)
+				}
+				if instance.ConfidentialInstanceConfig.ConfidentialInstanceType != "SEV_SNP" {
+					t.Errorf("Expected ConfidentialInstanceType to be SEV_SNP, Got: %s", instance.ConfidentialInstanceConfig.ConfidentialInstanceType)
+				}
+			},
+		},
+		{
 			name: "failed to fetch resource manager tags",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				Region: "test-region",
