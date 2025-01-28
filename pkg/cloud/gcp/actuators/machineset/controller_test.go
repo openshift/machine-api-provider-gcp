@@ -112,7 +112,14 @@ var _ = Describe("Reconciler", func() {
 	}
 
 	DescribeTable("when reconciling MachineSets", func(rtc reconcileTestCase) {
-		machineSet, err := newTestMachineSet(namespace.Name, rtc.machineType, rtc.guestAccelerators, rtc.existingAnnotations, nil)
+		disks := []*machinev1.GCPDisk{
+			{
+				Boot:  true,
+				Image: "projects/fooproject/global/images/uefi-image",
+			},
+		}
+
+		machineSet, err := newTestMachineSet(namespace.Name, rtc.machineType, rtc.guestAccelerators, rtc.existingAnnotations, disks)
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(c.Create(ctx, machineSet)).To(Succeed())
@@ -379,7 +386,14 @@ func TestReconcile(t *testing.T) {
 				},
 			}
 
-			machineSet, err := newTestMachineSet("default", tc.machineType, tc.guestAccelerators, tc.existingAnnotations, nil)
+			disks := []*machinev1.GCPDisk{
+				{
+					Boot:  true,
+					Image: "projects/fooproject/global/images/uefi-image",
+				},
+			}
+
+			machineSet, err := newTestMachineSet("default", tc.machineType, tc.guestAccelerators, tc.existingAnnotations, disks)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			_, err = r.reconcile(machineSet)
@@ -405,7 +419,7 @@ func TestReconcileDisks(t *testing.T) {
 		{
 			name: "boot disk with UEFI",
 			disks: []*machinev1.GCPDisk{
-				{Boot: true, Image: "uefi"},
+				{Boot: true, Image: "uefi-image"},
 			},
 			expectDisabled: false,
 		},

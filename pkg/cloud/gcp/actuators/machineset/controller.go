@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 
@@ -169,10 +168,12 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 		machineSet.Annotations[gpuKey] = strconv.FormatInt(0, 10)
 	}
 
-	// When upgrading from 4.12 on GCP marketplace, the MachineSets refer to images that do not support UEFI & shielded VMs.
-	// However, GCP defaulted to shielded VMs sometime between 4.12 and 4.13.
-	// Therefore, we should disable the shielded instance config in the MachineSet's template, so that new Machines created from it will boot.
-	uefiCompatible, err := isUEFICompatible(gceService, providerConfig)
+	// From OCP 4.13, we enable Shielded Instance Config by default. However, in
+	// some cases the boot disk is not UEFI compatible and instance creation will
+	// fail. This may present as customers being unable to scale existing
+	// machinesets. We should disable the shielded instance config in the
+	// MachineSet's template, so that new Machines created from it will boot.
+	uefiCompatible, err := util.IsUEFICompatible(gceService, providerConfig)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error fetching disk information: %s", err)
 	}
@@ -210,26 +211,4 @@ func (r *Reconciler) getRealGCPService(namespace string, providerConfig machinev
 		return nil, mapierrors.InvalidMachineConfiguration("error creating compute service: %v", err)
 	}
 	return computeService, nil
-}
-
-// isUEFICompatible will detect if the machine's boot disk was created with a UEFI image.
-// Shielded VMs can only be made with UEFI-compatible images. However, OpenShift images listed on the GCP marketplace
-// are not updated with every release, and the 4.8 image is used until 4.12 and was not created with UEFI support.
-func isUEFICompatible(gceService computeservice.GCPComputeService, providerConfig *machinev1.GCPMachineProviderSpec) (bool, error) {
-	for _, disk := range providerConfig.Disks {
-		if !disk.Boot {
-			continue
-		}
-		img, err := gceService.ImageGet(providerConfig.ProjectID, disk.Image)
-		if err != nil {
-			return false, fmt.Errorf("unable to retrieve image %s in project %s: %s", disk.Image, providerConfig.ProjectID, err)
-		}
-		for _, feat := range img.GuestOsFeatures {
-			if strings.Contains(feat.Type, util.UEFICompatible) {
-				return true, nil
-			}
-		}
-
-	}
-	return false, nil
 }
