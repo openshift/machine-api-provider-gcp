@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 
@@ -195,26 +194,4 @@ func (r *Reconciler) getRealGCPService(namespace string, providerConfig machinev
 		return nil, mapierrors.InvalidMachineConfiguration("error creating compute service: %v", err)
 	}
 	return computeService, nil
-}
-
-// isUEFICompatible will detect if the machine's boot disk was created with a UEFI image.
-// Shielded VMs can only be made with UEFI-compatible images. However, OpenShift images listed on the GCP marketplace
-// are not updated with every release, and the 4.8 image is used until 4.12 and was not created with UEFI support.
-func isUEFICompatible(gceService computeservice.GCPComputeService, providerConfig *machinev1.GCPMachineProviderSpec) (bool, error) {
-	for _, disk := range providerConfig.Disks {
-		if !disk.Boot {
-			continue
-		}
-		img, err := gceService.ImageGet(providerConfig.ProjectID, disk.Image)
-		if err != nil {
-			return false, fmt.Errorf("unable to retrieve image %s in project %s: %s", disk.Image, providerConfig.ProjectID, err)
-		}
-		for _, feat := range img.GuestOsFeatures {
-			if strings.Contains(feat.Type, util.UEFICompatible) {
-				return true, nil
-			}
-		}
-
-	}
-	return false, nil
 }

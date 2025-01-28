@@ -10,10 +10,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const (
-	UEFICompatible = "UEFI_COMPATIBLE"
-)
-
 // RawExtensionFromProviderSpec marshals the machine provider spec.
 func RawExtensionFromProviderSpec(spec *machinev1.GCPMachineProviderSpec) (*runtime.RawExtension, error) {
 	if spec == nil {
