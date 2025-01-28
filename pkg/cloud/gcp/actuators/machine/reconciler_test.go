@@ -64,6 +64,12 @@ func TestCreate(t *testing.T) {
 		{
 			name: "Fail on invalid user data secret",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				UserDataSecret: &corev1.LocalObjectReference{
 					Name: "notvalid",
 				},
@@ -109,6 +115,12 @@ func TestCreate(t *testing.T) {
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				ProjectID: "project",
 				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
 					{
 						ProjectID:  "network-project",
@@ -143,6 +155,12 @@ func TestCreate(t *testing.T) {
 						Count: 2,
 					},
 				},
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 			},
 			validateInstance: func(t *testing.T, instance *compute.Instance) {
 				if len(instance.GuestAccelerators) != 1 {
@@ -163,6 +181,12 @@ func TestCreate(t *testing.T) {
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				ProjectID: "project",
 				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
 					{
 						Network:    "test-network",
@@ -191,6 +215,7 @@ func TestCreate(t *testing.T) {
 				Region:    "test-region",
 				Disks: []*machinev1.GCPDisk{
 					{
+						Boot: true,
 						EncryptionKey: &machinev1.GCPEncryptionKeyReference{
 							KMSKey: &machinev1.GCPKMSKeyReference{
 								Name:      "kms-key-name",
@@ -228,6 +253,8 @@ func TestCreate(t *testing.T) {
 				Region:    "test-region",
 				Disks: []*machinev1.GCPDisk{
 					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
 						EncryptionKey: &machinev1.GCPEncryptionKeyReference{
 							KMSKey: &machinev1.GCPKMSKeyReference{
 								Name:     "kms-key",
@@ -263,6 +290,12 @@ func TestCreate(t *testing.T) {
 				machinev1.MachineClusterIDLabel: "CLUSTERID",
 			},
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				UserDataSecret: &corev1.LocalObjectReference{
 					Name: "windows-user-data",
 				},
@@ -297,6 +330,12 @@ func TestCreate(t *testing.T) {
 				machinev1.MachineClusterIDLabel: "CLUSTERID",
 			},
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				Metadata: []*machinev1.GCPMetadata{
 					{
 						Key:   windowsScriptMetadataKey,
@@ -349,6 +388,12 @@ func TestCreate(t *testing.T) {
 		{
 			name: "Always restart policy with a non-preemptible instance does not produce an error",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				Preemptible:   false,
 				RestartPolicy: v1beta1.RestartPolicyAlways,
 			},
@@ -356,6 +401,12 @@ func TestCreate(t *testing.T) {
 		{
 			name: "Never restart policy with a preemptible instance does not produce an error",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				Preemptible:   true,
 				RestartPolicy: v1beta1.RestartPolicyNever,
 			},
@@ -363,6 +414,12 @@ func TestCreate(t *testing.T) {
 		{
 			name: "Never restart policy with a non-preemptible instance does not produce an error",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				Preemptible:   false,
 				RestartPolicy: v1beta1.RestartPolicyNever,
 			},
@@ -386,6 +443,12 @@ func TestCreate(t *testing.T) {
 		{
 			name: "shieldedInstanceConfig not set, verify default behavior",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				Region:      "test-region",
 				Zone:        "test-zone",
 				MachineType: "n1-test-machineType",
@@ -405,6 +468,12 @@ func TestCreate(t *testing.T) {
 		{
 			name: "shieldedInstanceConfig with SecureBoot enabled",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				Region:                 "test-region",
 				Zone:                   "test-zone",
 				MachineType:            "n1-test-machineType",
@@ -449,6 +518,12 @@ func TestCreate(t *testing.T) {
 				Zone:                "test-zone",
 				MachineType:         "n2d-standard-4",
 				ConfidentialCompute: machinev1.ConfidentialComputePolicyEnabled,
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
 				ResourceManagerTags: []machinev1.ResourceManagerTag{
 					{
 						ParentID: "openshift",
@@ -507,7 +582,14 @@ func TestCreate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			receivedInstance, mockComputeService := computeservice.NewComputeServiceMock()
-			providerSpec := &machinev1.GCPMachineProviderSpec{}
+			providerSpec := &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			}
 			labels := map[string]string{
 				machinev1.MachineClusterIDLabel: "CLUSTERID",
 			}
@@ -620,6 +702,12 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 		},
 		coreClient: controllerfake.NewFakeClient(),
 		providerSpec: &machinev1.GCPMachineProviderSpec{
+			Disks: []*machinev1.GCPDisk{
+				{
+					Boot:  true,
+					Image: "projects/fooproject/global/images/uefi-image",
+				},
+			},
 			Zone: zone,
 		},
 		projectID:      projecID,

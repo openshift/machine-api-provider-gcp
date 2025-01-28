@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	compute "google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 )
@@ -25,6 +24,7 @@ const (
 	ErrImageNotFound               = "errImageNotFound"
 	PatchBackendService            = "patchBackendService"
 	AddGroupSuccessfully           = "addGroupSuccessfully"
+	UEFICompatible                 = "UEFI_COMPATIBLE"
 )
 
 type GCPComputeServiceMock struct {
@@ -259,9 +259,27 @@ func (c *GCPComputeServiceMock) ImageGet(project string, image string) (*compute
 		GuestOsFeatures: make([]*compute.GuestOsFeature, 0),
 	}
 
-	if image == "uefi" {
-		img.GuestOsFeatures = append(img.GuestOsFeatures, &compute.GuestOsFeature{Type: util.UEFICompatible})
+	if image == "uefi-image" {
+		img.GuestOsFeatures = append(img.GuestOsFeatures, &compute.GuestOsFeature{Type: UEFICompatible})
 	}
 
 	return img, nil
+}
+
+func (c *GCPComputeServiceMock) ImageFamilyGet(project, zone, family string) (*compute.ImageFamilyView, error) {
+	if project == ErrImageNotFound {
+		return nil, errors.New("imageGet request failed")
+	}
+
+	imgView := &compute.ImageFamilyView{
+		Image: &compute.Image{
+			GuestOsFeatures: make([]*compute.GuestOsFeature, 0),
+		},
+	}
+
+	if family == "uefi-image-family" {
+		imgView.Image.GuestOsFeatures = append(imgView.Image.GuestOsFeatures, &compute.GuestOsFeature{Type: UEFICompatible})
+	}
+
+	return imgView, nil
 }
