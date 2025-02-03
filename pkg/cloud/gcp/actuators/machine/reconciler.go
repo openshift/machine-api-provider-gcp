@@ -257,6 +257,8 @@ func (r *Reconciler) create() error {
 			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV"
 		case machinev1.ConfidentialComputePolicySEVSNP:
 			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV_SNP"
+		case machinev1.ConfidentialComputePolicyTDX:
+			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "TDX"
 		default:
 			return machinecontroller.InvalidMachineConfiguration("unknown confidentialCompute value %s", r.providerSpec.ConfidentialCompute)
 		}
