@@ -229,6 +229,8 @@ func (r *Reconciler) create() error {
 			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV"
 		case machinev1.ConfidentialVMTechSEVSNP:
 			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV_SNP"
+		case machinev1.ConfidentialVMTechTDX:
+			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "TDX"
 		default:
 			return machinecontroller.InvalidMachineConfiguration("unknown confidential instance type %s", r.providerSpec.ConfidentialInstanceType)
 		}

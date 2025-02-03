@@ -505,6 +505,27 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "confidential instance type tdx",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:                   "test-region",
+				Zone:                     "test-zone",
+				MachineType:              "n2d-standard-4",
+				ConfidentialInstanceType: machinev1.ConfidentialVMTechTDX,
+				ResourceManagerTags: []machinev1.ResourceManagerTag{
+					{
+						ParentID: "openshift",
+						Key:      "key1",
+						Value:    "value1",
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if instance.ConfidentialInstanceConfig.ConfidentialInstanceType != "TDX" {
+					t.Errorf("Expected ConfidentialInstanceType to be TDX, Got: %s", instance.ConfidentialInstanceConfig.ConfidentialInstanceType)
+				}
+			},
+		},
+		{
 			name: "failed to fetch resource manager tags",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				Region: "test-region",
