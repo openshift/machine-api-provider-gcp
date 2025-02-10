@@ -48,6 +48,7 @@ type imageReference struct {
 // It supports various formats:
 //   - "projects/{project}/global/images/{image}"
 //   - "projects/{project}/global/images/family/{imageFamily}"
+//   - "https://www.googleapis.com/compute/v1/projects/{project}/global/images/{image}"
 //   - A simple image name without slashes, in which case providerProject is used.
 func parseImageReference(imageStr, providerProject string) (*imageReference, error) {
 	// If the image string does not contain a slash, assume it's a simple image name.
