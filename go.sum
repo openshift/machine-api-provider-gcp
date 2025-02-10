@@ -383,8 +383,8 @@ github.com/openshift/api v0.0.0-20250131155403-30a036067514 h1:1I6LCxy9Liq/BCIVe
 github.com/openshift/api v0.0.0-20250131155403-30a036067514/go.mod h1:yk60tHAmHhtVpJQo3TwVYq2zpuP70iJIFDCmeKMIzPw=
 github.com/openshift/client-go v0.0.0-20250131180035-f7ec47e2d87a h1:duO3JMrUOqVx50QhzxvDeOYIwTNOB8/EEuRLPyvAMBg=
 github.com/openshift/client-go v0.0.0-20250131180035-f7ec47e2d87a/go.mod h1:Qw3ThpzVZ0bfTILpBNYg4LGyjtNxfyCiGh/uDLOOTP8=
-github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250122171707-86066d47a264 h1:KoJiId8Ynajf/ZFodvmayFkDODIL7Vow3LmgR5+oVRg=
-github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250122171707-86066d47a264/go.mod h1:d6xqfLy/cKEGUKfounNsWdAhWAcUYfZyuDgHBCQyfeM=
+github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250212190404-7b14200dfd2a h1:kLALvZH3qjFHVRJkL4tnjUHKWm1SyxGq3u3HG+nKs5M=
+github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250212190404-7b14200dfd2a/go.mod h1:tilbdhr8HeKALmAdg5AH8DCoZUDO3ciG2q6bGgL1xLo=
 github.com/openshift/cluster-control-plane-machine-set-operator v0.0.0-20250128131205-c7b3d7b57a8e h1:fr2ilTXem4bUGpkGpICyabti3eHr9jfgCphG7meaiJw=
 github.com/openshift/cluster-control-plane-machine-set-operator v0.0.0-20250128131205-c7b3d7b57a8e/go.mod h1:ae3TvkWGFUuKQAnypbtiVMXxBlRfJGbf37z5zVh98uA=
 github.com/openshift/library-go v0.0.0-20250203131244-80620876b7c2 h1:LaJmI+EeFnpbxs5H4Y6KOiNXhtPjldqvNzVfPpNM+dI=
