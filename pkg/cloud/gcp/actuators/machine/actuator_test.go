@@ -126,6 +126,12 @@ func TestActuatorEvents(t *testing.T) {
 		CredentialsSecret: &corev1.LocalObjectReference{
 			Name: credentialsSecretName,
 		},
+		Disks: []*machinev1.GCPDisk{
+			{
+				Boot:  true,
+				Image: "projects/fooproject/global/images/uefi-image",
+			},
+		},
 	})
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(providerSpec).ToNot(BeNil())
