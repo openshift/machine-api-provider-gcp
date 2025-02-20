@@ -127,17 +127,17 @@ type GpuInfo struct {
 	Type  string
 }
 
-// GPUCompatibleMachineTypesList function lists machineTypes available in the zone and return map of A2 family and slice of N1 family machineTypes
+// GPUCompatibleMachineTypesList function lists machineTypes available in the zone and return map of A2 and A3 family and slice of N1 family machineTypes
 func (c *computeService) GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]GpuInfo, []string) {
 	req := c.service.MachineTypes.List(project, zone)
 	var (
-		a2MachineFamily = map[string]GpuInfo{}
-		n1MachineFamily []string
+		a2or3MachineFamily = map[string]GpuInfo{}
+		n1MachineFamily    []string
 	)
 	if err := req.Pages(ctx, func(page *compute.MachineTypeList) error {
 		for _, machineType := range page.Items {
-			if strings.HasPrefix(machineType.Name, "a2") {
-				a2MachineFamily[machineType.Name] = GpuInfo{
+			if strings.HasPrefix(machineType.Name, "a2") || strings.HasPrefix(machineType.Name, "a3") {
+				a2or3MachineFamily[machineType.Name] = GpuInfo{
 					Count: machineType.Accelerators[0].GuestAcceleratorCount,
 					Type:  machineType.Accelerators[0].GuestAcceleratorType,
 				}
@@ -149,7 +149,7 @@ func (c *computeService) GPUCompatibleMachineTypesList(project string, zone stri
 	}); err != nil {
 		log.Fatal(err)
 	}
-	return a2MachineFamily, n1MachineFamily
+	return a2or3MachineFamily, n1MachineFamily
 }
 
 func (c *computeService) AcceleratorTypeGet(project string, zone string, acceleratorType string) (*compute.AcceleratorType, error) {

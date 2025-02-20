@@ -52,13 +52,15 @@ var (
 	// the keys have been sourced from https://cloud.google.com/compute/docs/gpus/
 	// the values have been sourced from https://github.com/googleapis/google-api-go-client/blob/main/compute/v1/compute-gen.go
 	supportedGpuTypes = map[string]string{
-		"nvidia-tesla-k80":  "NVIDIA_K80_GPUS",
-		"nvidia-tesla-p100": "NVIDIA_P100_GPUS",
-		"nvidia-tesla-v100": "NVIDIA_V100_GPUS",
-		"nvidia-tesla-a100": "NVIDIA_A100_GPUS",
-		"nvidia-tesla-p4":   "NVIDIA_P4_GPUS",
-		"nvidia-tesla-t4":   "NVIDIA_T4_GPUS",
-		"nvidia-a100-80gb":  "NVIDIA_A100_80GB_GPUS",
+		"nvidia-tesla-k80":      "NVIDIA_K80_GPUS",
+		"nvidia-tesla-p100":     "NVIDIA_P100_GPUS",
+		"nvidia-tesla-v100":     "NVIDIA_V100_GPUS",
+		"nvidia-tesla-a100":     "NVIDIA_A100_GPUS",
+		"nvidia-tesla-p4":       "NVIDIA_P4_GPUS",
+		"nvidia-tesla-t4":       "NVIDIA_T4_GPUS",
+		"nvidia-a100-80gb":      "NVIDIA_A100_80GB_GPUS",
+		"nvidia-h100-mega-80gb": "NVIDIA_H100_GPUS",
+		"nvidia-h100-80gb":      "NVIDIA_H100_GPUS",
 	}
 )
 
@@ -127,20 +129,23 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 }
 
 func (r *Reconciler) validateGuestAccelerators() error {
-	// Note(elmiko) this is known to have an error in that non a2 instances with GPUs (eg a3 types) will bypass this check, which is fine for now.
-	if len(r.providerSpec.GPUs) == 0 && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
+	// Note, this logic will reject machines that are not a2 or a3, or have GPUs specified. This means that future
+	// machine types that have GPUs included would skip this function. The ultimate result for users it that new GPU
+	// machine types will not have accurate quota reporting. If machines are being pathologically deleted and recreated
+	// it may be a sign of a quota issue.
+	if len(r.providerSpec.GPUs) == 0 && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") && !strings.HasPrefix(r.providerSpec.MachineType, "a3-") {
 		// no accelerators to validate so return nil
 		return nil
 	}
-	if len(r.providerSpec.GPUs) > 0 && strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
-		return machinecontroller.InvalidMachineConfiguration("A2 Machine types have pre-attached guest accelerators. Adding additional guest accelerators is not supported")
+	if len(r.providerSpec.GPUs) > 0 && (strings.HasPrefix(r.providerSpec.MachineType, "a2-") || strings.HasPrefix(r.providerSpec.MachineType, "a3-")) {
+		return machinecontroller.InvalidMachineConfiguration("A2 and A3 Machine types have pre-attached guest accelerators. Adding additional guest accelerators is not supported")
 	}
-	if !strings.HasPrefix(r.providerSpec.MachineType, "n1-") && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") {
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("MachineType %s does not support accelerators. Only A2 and N1 machine type families support guest acceleartors.", r.providerSpec.MachineType))
+	if !strings.HasPrefix(r.providerSpec.MachineType, "n1-") && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") && !strings.HasPrefix(r.providerSpec.MachineType, "a3-") {
+		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("MachineType %s does not support accelerators. Only A2, A3 and N1 machine type families support guest accelerators.", r.providerSpec.MachineType))
 	}
-	a2MachineFamily, n1MachineFamily := r.computeService.GPUCompatibleMachineTypesList(r.providerSpec.ProjectID, r.providerSpec.Zone, r.Context)
+	a2or3MachineFamily, n1MachineFamily := r.computeService.GPUCompatibleMachineTypesList(r.providerSpec.ProjectID, r.providerSpec.Zone, r.Context)
 	machineType := r.providerSpec.MachineType
-	if gpuInfo, ok := a2MachineFamily[machineType]; ok {
+	if gpuInfo, ok := a2or3MachineFamily[machineType]; ok {
 		// a2 family machine - has fixed type and count of GPUs
 		guestAccelerators := []machinev1.GCPGPUConfig{
 			{
