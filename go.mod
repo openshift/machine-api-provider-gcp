@@ -9,6 +9,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.22.2
 	github.com/onsi/gomega v1.36.2
 	github.com/openshift/api v0.0.0-20250131155403-30a036067514
+	github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250212190404-7b14200dfd2a
 	github.com/openshift/library-go v0.0.0-20250203131244-80620876b7c2
 	github.com/openshift/machine-api-operator v0.2.1-0.20250203164435-b657d8bf9389
 	golang.org/x/oauth2 v0.24.0
