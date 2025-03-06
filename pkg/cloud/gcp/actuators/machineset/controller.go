@@ -21,6 +21,7 @@ import (
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 
 	"github.com/go-logr/logr"
+	configv1 "github.com/openshift/api/config/v1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	mapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	mapiutil "github.com/openshift/machine-api-operator/pkg/util"
@@ -215,7 +216,12 @@ func (r *Reconciler) getRealGCPService(namespace string, providerConfig machinev
 		return nil, err
 	}
 
-	computeService, err := computeservice.NewComputeService(serviceAccountJSON)
+	endpoint, err := util.GetGCPServiceEndpoint(r.Client, configv1.GCPServiceEndpointNameCompute)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GCP compute service endpoint: %v", err)
+	}
+
+	computeService, err := computeservice.NewComputeService(serviceAccountJSON, endpoint)
 	if err != nil {
 		return nil, mapierrors.InvalidMachineConfiguration("error creating compute service: %v", err)
 	}

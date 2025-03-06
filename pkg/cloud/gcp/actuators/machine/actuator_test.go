@@ -320,6 +320,7 @@ func TestActuatorEvents(t *testing.T) {
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
 				FeatureGates:         gate,
+				EndpointLookup:       util.MockGCPEndpointLookup,
 			}
 
 			actuator := NewActuator(params)
@@ -424,6 +425,7 @@ func TestActuatorExists(t *testing.T) {
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
 				FeatureGates:         gate,
+				EndpointLookup:       util.MockGCPEndpointLookup,
 			}
 
 			actuator := NewActuator(params)
