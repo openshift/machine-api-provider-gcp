@@ -8,6 +8,7 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/machine-api-provider-gcp/pkg/version"
 	"google.golang.org/api/compute/v1"
 )
@@ -44,10 +45,10 @@ type computeService struct {
 }
 
 // BuilderFuncType is function type for building gcp client
-type BuilderFuncType func(serviceAccountJSON string) (GCPComputeService, error)
+type BuilderFuncType func(serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (GCPComputeService, error)
 
 // NewComputeService return a new computeService
-func NewComputeService(serviceAccountJSON string) (GCPComputeService, error) {
+func NewComputeService(serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (GCPComputeService, error) {
 	ctx := context.TODO()
 
 	creds, err := google.CredentialsFromJSON(ctx, []byte(serviceAccountJSON), compute.CloudPlatformScope)
@@ -55,7 +56,14 @@ func NewComputeService(serviceAccountJSON string) (GCPComputeService, error) {
 		return nil, err
 	}
 
-	service, err := compute.NewService(ctx, option.WithCredentials(creds))
+	options := []option.ClientOption{
+		option.WithCredentials(creds),
+	}
+	if endpoint != nil && endpoint.URL != "" {
+		options = append(options, option.WithEndpoint(endpoint.URL))
+	}
+
+	service, err := compute.NewService(ctx, options...)
 	if err != nil {
 		return nil, err
 	}
