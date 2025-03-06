@@ -249,9 +249,21 @@ func (r *Reconciler) create() error {
 		instance.ShieldedInstanceConfig.ForceSendFields = append(instance.ShieldedInstanceConfig.ForceSendFields, "EnableIntegrityMonitoring")
 	}
 
-	if r.providerSpec.ConfidentialCompute == machinev1.ConfidentialComputePolicyEnabled {
+	if r.providerSpec.ConfidentialCompute != "" && r.providerSpec.ConfidentialCompute != machinev1.ConfidentialComputePolicyDisabled {
 		instance.ConfidentialInstanceConfig = &compute.ConfidentialInstanceConfig{EnableConfidentialCompute: true}
+		switch r.providerSpec.ConfidentialCompute {
+		case machinev1.ConfidentialComputePolicyEnabled:
+		case machinev1.ConfidentialComputePolicySEV:
+			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV"
+		case machinev1.ConfidentialComputePolicySEVSNP:
+			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV_SNP"
+		case machinev1.ConfidentialComputePolicyTDX:
+			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "TDX"
+		default:
+			return machinecontroller.InvalidMachineConfiguration("unknown confidentialCompute value %s", r.providerSpec.ConfidentialCompute)
+		}
 	}
+
 	var guestAccelerators = []*compute.AcceleratorConfig{}
 
 	if l := len(r.providerSpec.GPUs); l == 1 {
