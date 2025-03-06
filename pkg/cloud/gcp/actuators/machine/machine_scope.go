@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	configv1 "github.com/openshift/api/config/v1"
+	apifeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
@@ -26,6 +28,7 @@ type machineScopeParams struct {
 	computeClientBuilder computeservice.BuilderFuncType
 	tagsClientBuilder    tagservice.BuilderFuncType
 	featureGates         featuregate.FeatureGate
+	endpointLookup       util.EndpointLookupFuncType
 }
 
 // machineScope defines a scope defined around a machine and its cluster.
@@ -85,12 +88,31 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 		}
 	}
 
-	computeService, err := params.computeClientBuilder(serviceAccountJSON)
+	var computeEndpoint *configv1.GCPServiceEndpoint = nil
+	var tagsEndpoint *configv1.GCPServiceEndpoint = nil
+	if params.featureGates.Enabled(featuregate.Feature(apifeatures.FeatureGateGCPCustomAPIEndpoints)) {
+		lookupFunc := params.endpointLookup
+		if lookupFunc == nil {
+			lookupFunc = util.GetGCPServiceEndpoint
+		}
+
+		computeEndpoint, err = lookupFunc(params.coreClient, configv1.GCPServiceEndpointNameCompute)
+		if err != nil {
+			return nil, machineapierros.InvalidMachineConfiguration("error getting compute service endpoint: %v", err)
+		}
+
+		tagsEndpoint, err = lookupFunc(params.coreClient, configv1.GCPServiceEndpointNameTagManager)
+		if err != nil {
+			return nil, machineapierros.InvalidMachineConfiguration("error getting tag manager service endpoint: %v", err)
+		}
+	}
+
+	computeService, err := params.computeClientBuilder(serviceAccountJSON, computeEndpoint)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("error creating compute service: %v", err)
 	}
 
-	tagService, err := params.tagsClientBuilder(params.Context, serviceAccountJSON)
+	tagService, err := params.tagsClientBuilder(params.Context, serviceAccountJSON, tagsEndpoint)
 	if err != nil {
 		return nil, machineapierros.InvalidMachineConfiguration("error creating tag service: %v", err)
 	}

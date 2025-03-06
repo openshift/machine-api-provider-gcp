@@ -10,6 +10,7 @@ import (
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/component-base/featuregate"
@@ -34,6 +35,7 @@ type Actuator struct {
 	computeClientBuilder computeservice.BuilderFuncType
 	tagsClientBuilder    tagservice.BuilderFuncType
 	featureGates         featuregate.FeatureGate
+	endpointLookup       util.EndpointLookupFuncType
 }
 
 // ActuatorParams holds parameter information for Actuator.
@@ -43,6 +45,7 @@ type ActuatorParams struct {
 	ComputeClientBuilder computeservice.BuilderFuncType
 	TagsClientBuilder    tagservice.BuilderFuncType
 	FeatureGates         featuregate.FeatureGate
+	EndpointLookup       util.EndpointLookupFuncType
 }
 
 // NewActuator returns an actuator.
@@ -53,6 +56,7 @@ func NewActuator(params ActuatorParams) *Actuator {
 		computeClientBuilder: params.ComputeClientBuilder,
 		tagsClientBuilder:    params.TagsClientBuilder,
 		featureGates:         params.FeatureGates,
+		endpointLookup:       params.EndpointLookup,
 	}
 }
 
@@ -76,6 +80,7 @@ func (a *Actuator) Create(ctx context.Context, machine *machinev1.Machine) error
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
+		endpointLookup:       a.endpointLookup,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)
@@ -100,6 +105,7 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
+		endpointLookup:       a.endpointLookup,
 	})
 	if err != nil {
 		return false, fmt.Errorf(scopeFailFmt, machine.Name, err)
@@ -141,6 +147,7 @@ func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
+		endpointLookup:       a.endpointLookup,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)
@@ -178,6 +185,7 @@ func (a *Actuator) Delete(ctx context.Context, machine *machinev1.Machine) error
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,
 		featureGates:         a.featureGates,
+		endpointLookup:       a.endpointLookup,
 	})
 	if err != nil {
 		fmtErr := fmt.Errorf(scopeFailFmt, machine.GetName(), err)

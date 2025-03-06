@@ -320,6 +320,7 @@ func TestActuatorEvents(t *testing.T) {
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
 				FeatureGates:         gate,
+				EndpointLookup:       util.MockGCPEndpointLookup,
 			}
 
 			actuator := NewActuator(params)
@@ -424,6 +425,7 @@ func TestActuatorExists(t *testing.T) {
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
 				FeatureGates:         gate,
+				EndpointLookup:       util.MockGCPEndpointLookup,
 			}
 
 			actuator := NewActuator(params)
@@ -446,7 +448,7 @@ func TestActuatorExists(t *testing.T) {
 
 func NewDefaultMutableFeatureGate(gateConfig map[string]bool) (featuregate.MutableFeatureGate, error) {
 	defaultMutableGate := feature.DefaultMutableFeatureGate
-	_, err := features.NewFeatureGateOptions(defaultMutableGate, openshiftfeatures.SelfManaged, openshiftfeatures.FeatureGateMachineAPIMigration)
+	_, err := features.NewFeatureGateOptions(defaultMutableGate, openshiftfeatures.SelfManaged, openshiftfeatures.FeatureGateMachineAPIMigration, openshiftfeatures.FeatureGateGCPCustomAPIEndpoints)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set up default feature gate: %w", err)
 	}
