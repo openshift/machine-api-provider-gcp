@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
+	apifeatures "github.com/openshift/api/features"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	mapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	mapiutil "github.com/openshift/machine-api-operator/pkg/util"
@@ -29,7 +30,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -53,6 +56,8 @@ type Reconciler struct {
 	recorder record.EventRecorder
 	scheme   *runtime.Scheme
 	cache    *machineTypesCache
+
+	FeatureGates featuregate.FeatureGate
 
 	// Allow a mock GCPComputeService to be injected during testing
 	getGCPService func(namespace string, providerConfig machinev1.GCPMachineProviderSpec) (computeservice.GCPComputeService, error)
@@ -216,9 +221,14 @@ func (r *Reconciler) getRealGCPService(namespace string, providerConfig machinev
 		return nil, err
 	}
 
-	endpoint, err := util.GetGCPServiceEndpoint(r.Client, configv1.GCPServiceEndpointNameCompute)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get GCP compute service endpoint: %v", err)
+	var endpoint *configv1.GCPServiceEndpoint = nil
+	if sets.New(r.FeatureGates.KnownFeatures()...).Has(string(apifeatures.FeatureGateGCPCustomAPIEndpoints)) {
+		if r.FeatureGates.Enabled(featuregate.Feature(apifeatures.FeatureGateGCPCustomAPIEndpoints)) {
+			endpoint, err = util.GetGCPServiceEndpoint(r.Client, configv1.GCPServiceEndpointNameCompute)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get GCP compute service endpoint: %v", err)
+			}
+		}
 	}
 
 	computeService, err := computeservice.NewComputeService(serviceAccountJSON, endpoint)
