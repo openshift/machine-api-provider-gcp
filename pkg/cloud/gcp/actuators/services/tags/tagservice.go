@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	configv1 "github.com/openshift/api/config/v1"
+
 	tags "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/option"
 )
@@ -20,11 +22,18 @@ type tagService struct {
 }
 
 // BuilderFuncType is function type for building GCP tag client.
-type BuilderFuncType func(ctx context.Context, serviceAccountJSON string) (TagService, error)
+type BuilderFuncType func(ctx context.Context, serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (TagService, error)
 
 // NewTagService return a new tagService.
-func NewTagService(ctx context.Context, serviceAccountJSON string) (TagService, error) {
-	service, err := tags.NewService(ctx, option.WithCredentialsJSON([]byte(serviceAccountJSON)))
+func NewTagService(ctx context.Context, serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (TagService, error) {
+	options := []option.ClientOption{
+		option.WithCredentialsJSON([]byte(serviceAccountJSON)),
+	}
+	if endpoint != nil && endpoint.URL != "" {
+		options = append(options, option.WithEndpoint(endpoint.URL))
+	}
+
+	service, err := tags.NewService(ctx, options...)
 	if err != nil {
 		return nil, fmt.Errorf("could not create new tag service: %w", err)
 	}
