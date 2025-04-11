@@ -29,13 +29,14 @@ func NewTagService(ctx context.Context, serviceAccountJSON string, endpoint *con
 	options := []option.ClientOption{
 		option.WithCredentialsJSON([]byte(serviceAccountJSON)),
 	}
-	if endpoint != nil && endpoint.URL != "" {
-		options = append(options, option.WithEndpoint(endpoint.URL))
-	}
 
 	service, err := tags.NewService(ctx, options...)
 	if err != nil {
 		return nil, fmt.Errorf("could not create new tag service: %w", err)
+	}
+
+	if endpoint != nil && endpoint.URL != "" {
+		service.BasePath = endpoint.URL
 	}
 
 	return &tagService{

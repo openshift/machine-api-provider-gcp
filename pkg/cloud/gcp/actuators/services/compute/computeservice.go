@@ -59,15 +59,16 @@ func NewComputeService(serviceAccountJSON string, endpoint *configv1.GCPServiceE
 	options := []option.ClientOption{
 		option.WithCredentials(creds),
 	}
-	if endpoint != nil && endpoint.URL != "" {
-		options = append(options, option.WithEndpoint(endpoint.URL))
-	}
 
 	service, err := compute.NewService(ctx, options...)
 	if err != nil {
 		return nil, err
 	}
 	service.UserAgent = "gcpprovider.openshift.io/" + version.Version.String()
+
+	if endpoint != nil && endpoint.URL != "" {
+		service.BasePath = endpoint.URL
+	}
 
 	return &computeService{
 		service: service,
