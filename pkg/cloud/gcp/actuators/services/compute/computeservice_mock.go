@@ -30,10 +30,12 @@ const (
 )
 
 type GCPComputeServiceMock struct {
-	MockInstancesInsert   func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
-	MockMachineTypesGet   func(project string, zone string, machineType string) (*compute.MachineType, error)
-	mockZoneOperationsGet func(project string, zone string, operation string) (*compute.Operation, error)
-	mockInstancesGet      func(project string, zone string, instance string) (*compute.Instance, error)
+	MockGPUCompatibleMachineTypesList func(project string, zone string, ctx context.Context) (map[string]GpuInfo, []string)
+	MockInstancesInsert               func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
+	MockMachineTypesGet               func(project string, zone string, machineType string) (*compute.MachineType, error)
+	MockRegionGet                     func(project string, region string) (*compute.Region, error)
+	mockZoneOperationsGet             func(project string, zone string, operation string) (*compute.Operation, error)
+	mockInstancesGet                  func(project string, zone string, instance string) (*compute.Instance, error)
 }
 
 func (c *GCPComputeServiceMock) InstancesInsert(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
@@ -150,13 +152,22 @@ func MockBuilderFuncTypeNotFound(serviceAccountJSON string, endpoint *configv1.G
 }
 
 func (c *GCPComputeServiceMock) RegionGet(project string, region string) (*compute.Region, error) {
-	return &compute.Region{Quotas: nil}, nil
+	if c.MockRegionGet == nil {
+		return &compute.Region{Quotas: nil}, nil
+	}
+
+	return c.MockRegionGet(project, region)
 }
 
 func (c *GCPComputeServiceMock) GPUCompatibleMachineTypesList(project string, zone string, ctx context.Context) (map[string]GpuInfo, []string) {
-	var compatibleMachineType = []string{"n1-test-machineType"}
-	return nil, compatibleMachineType
+	if c.MockGPUCompatibleMachineTypesList == nil {
+		var compatibleMachineType = []string{"n1-test-machineType"}
+		return nil, compatibleMachineType
+	}
+
+	return c.MockGPUCompatibleMachineTypesList(project, zone, ctx)
 }
+
 func (c *GCPComputeServiceMock) AcceleratorTypeGet(project string, zone string, acceleratorType string) (*compute.AcceleratorType, error) {
 	return nil, nil
 }
