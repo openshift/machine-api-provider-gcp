@@ -319,6 +319,7 @@ func (r *Reconciler) create() error {
 		}
 		return fmt.Errorf("failed to create instance via compute service: %s", errMsg)
 	}
+	klog.Infof("InstancesInsert Operation return: %+v", *operation)
 	return r.reconcileMachineWithCloudState(nil)
 }
 
