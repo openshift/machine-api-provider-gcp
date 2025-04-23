@@ -168,9 +168,10 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 		machineSet.Annotations[gpuKey] = strconv.FormatInt(0, 10)
 	}
 
-	// From OCP 4.13, we enable Shielded Instance Config by default. However, in
-	// some cases the boot disk is not UEFI compatible and instance creation will
-	// fail. This may present as customers being unable to scale existing
+	// OCP 4.12 and under did not have the ShieldedInstanceConfig field. From OCP
+	// 4.13, we enable Shielded Instance Config by default. In some cases the
+	// boot disk is not UEFI compatible and instance creation will fail with the
+	// new default. This may present as customers being unable to scale existing
 	// machinesets. We should disable the shielded instance config in the
 	// MachineSet's template, so that new Machines created from it will boot.
 	uefiCompatible, err := util.IsUEFICompatible(gceService, providerConfig)
