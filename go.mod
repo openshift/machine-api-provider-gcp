@@ -12,6 +12,7 @@ require (
 	github.com/onsi/gomega v1.31.1
 	github.com/openshift/api v0.0.0-20240124164020-e2ce40831f2e
 	github.com/openshift/client-go v0.0.0-20240115204758-e6bf7d631d5e
+	github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250425124313-1c5f483c5fb7
 	github.com/openshift/library-go v0.0.0-20240116081341-964bcb3f545c
 	github.com/openshift/machine-api-operator v0.2.1-0.20240125175440-c9de8bda0dd1
 	golang.org/x/oauth2 v0.12.0
@@ -99,7 +100,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/crypto v0.18.0 // indirect
-	golang.org/x/exp v0.0.0-20220827204233-334a2380cb91 // indirect
+	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea // indirect
 	golang.org/x/mod v0.14.0 // indirect
 	golang.org/x/net v0.20.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
