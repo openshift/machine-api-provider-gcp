@@ -27,14 +27,16 @@ import (
 
 func TestCreate(t *testing.T) {
 	cases := []struct {
-		name                string
-		labels              map[string]string
-		providerSpec        *machinev1.GCPMachineProviderSpec
-		expectedCondition   *metav1.Condition
-		secret              *corev1.Secret
-		mockInstancesInsert func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
-		validateInstance    func(t *testing.T, instance *compute.Instance)
-		expectedError       error
+		name                              string
+		labels                            map[string]string
+		providerSpec                      *machinev1.GCPMachineProviderSpec
+		expectedCondition                 *metav1.Condition
+		secret                            *corev1.Secret
+		mockGPUCompatibleMachineTypesList func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string)
+		mockInstancesInsert               func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
+		mockRegionGet                     func(project string, region string) (*compute.Region, error)
+		validateInstance                  func(t *testing.T, instance *compute.Instance)
+		expectedError                     error
 	}{
 		{
 			name: "Successfully create machine",
@@ -173,6 +175,107 @@ func TestCreate(t *testing.T) {
 				if instance.GuestAccelerators[0].AcceleratorCount != expectedAcceleratorCount {
 					t.Errorf("Expected AcceleratorCount: %d, Got: %d", expectedAcceleratorCount, instance.GuestAccelerators[0].AcceleratorCount)
 				}
+			},
+		},
+		{
+			name: "a2 instance create succeeds when quota is available",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:      "test-region",
+				Zone:        "test-zone",
+				MachineType: "a2-highgpu-4g",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			mockGPUCompatibleMachineTypesList: func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string) {
+				var compatibleMachineType = []string{}
+				var gpuInfo = map[string]computeservice.GpuInfo{
+					"a2-highgpu-4g": computeservice.GpuInfo{
+						Type:  "nvidia-a100-80gb",
+						Count: 1,
+					},
+				}
+				return gpuInfo, compatibleMachineType
+			},
+			mockRegionGet: func(project string, region string) (*compute.Region, error) {
+				var computeQuota = &compute.Quota{
+					Limit:  1.0,
+					Metric: "NVIDIA_A100_80GB_GPUS",
+				}
+				var computeRegion = &compute.Region{Quotas: []*compute.Quota{computeQuota}}
+				return computeRegion, nil
+			},
+		},
+		{
+			name: "a2 instance create produces an error when quota is not available",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:      "test-region",
+				Zone:        "test-zone",
+				MachineType: "a2-highgpu-4g",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			mockGPUCompatibleMachineTypesList: func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string) {
+				var compatibleMachineType = []string{}
+				var gpuInfo = map[string]computeservice.GpuInfo{
+					"a2-highgpu-4g": computeservice.GpuInfo{
+						Type:  "nvidia-a100-80gb",
+						Count: 1,
+					},
+				}
+				return gpuInfo, compatibleMachineType
+			},
+			mockRegionGet: func(project string, region string) (*compute.Region, error) {
+				var computeQuota = &compute.Quota{
+					Limit:  0.0,
+					Metric: "NVIDIA_A100_80GB_GPUS",
+				}
+				var computeRegion = &compute.Region{Quotas: []*compute.Quota{computeQuota}}
+				return computeRegion, nil
+			},
+			expectedError: fmt.Errorf("Quota exceeded. Metric: NVIDIA_A100_80GB_GPUS. Usage: 0. Limit: 0."),
+		},
+		{
+			name: "a3 instance create succeeds when quota is not found",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:      "test-region",
+				Zone:        "test-zone",
+				MachineType: "a3-megagpu-8g",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			mockGPUCompatibleMachineTypesList: func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string) {
+				var compatibleMachineType = []string{}
+				var gpuInfo = map[string]computeservice.GpuInfo{
+					"a2-highgpu-4g": computeservice.GpuInfo{
+						Type:  "nvidia-a100-80gb",
+						Count: 1,
+					},
+					"a3-megagpu-8g": computeservice.GpuInfo{
+						Type:  "nvidia-h100-mega-80gb",
+						Count: 1,
+					},
+				}
+				return gpuInfo, compatibleMachineType
+			},
+			mockRegionGet: func(project string, region string) (*compute.Region, error) {
+				var computeQuota = &compute.Quota{
+					Limit:  0.0,
+					Metric: "NVIDIA_A100_80GB_GPUS",
+				}
+				var computeRegion = &compute.Region{Quotas: []*compute.Quota{computeQuota}}
+				return computeRegion, nil
 			},
 		},
 		{
@@ -742,6 +845,14 @@ func TestCreate(t *testing.T) {
 
 			if tc.mockInstancesInsert != nil {
 				mockComputeService.MockInstancesInsert = tc.mockInstancesInsert
+			}
+
+			if tc.mockGPUCompatibleMachineTypesList != nil {
+				mockComputeService.MockGPUCompatibleMachineTypesList = tc.mockGPUCompatibleMachineTypesList
+			}
+
+			if tc.mockRegionGet != nil {
+				mockComputeService.MockRegionGet = tc.mockRegionGet
 			}
 
 			err = reconciler.create()

@@ -113,6 +113,7 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 	if r.providerSpec.Preemptible {
 		metric = "PREEMPTIBLE_" + metric
 	}
+
 	// check quota for GA
 	for i, q := range quotas {
 		if q.Metric == metric {
@@ -121,8 +122,15 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 			}
 			break
 		}
+		// in some cases, we cannot detect the quota for a machine type. in these cases we want to allow the creation with a warning to the user.
 		if i == len(quotas)-1 {
-			return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("No quota found. Metric: %s.", metric))
+			klog.Warningf("No quota found for metric %s, allowing creation of machine type %s with %s type accelerator in region %s and zone %s. This may result in a failed instance.",
+				metric,
+				r.providerSpec.MachineType,
+				accelerator.Type,
+				r.providerSpec.Region,
+				r.providerSpec.Zone,
+			)
 		}
 	}
 	return nil
