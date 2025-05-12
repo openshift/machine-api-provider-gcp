@@ -224,7 +224,7 @@ github.com/onsi/gomega/matchers/support/goraph/edge
 github.com/onsi/gomega/matchers/support/goraph/node
 github.com/onsi/gomega/matchers/support/goraph/util
 github.com/onsi/gomega/types
-# github.com/openshift/api v0.0.0-20230928105710-23b54c280f99
+# github.com/openshift/api v0.0.0-20231120222239-b86761094ee3
 ## explicit; go 1.20
 github.com/openshift/api
 github.com/openshift/api/apiserver
@@ -262,6 +262,7 @@ github.com/openshift/api/monitoring
 github.com/openshift/api/monitoring/v1alpha1
 github.com/openshift/api/network
 github.com/openshift/api/network/v1
+github.com/openshift/api/network/v1alpha1
 github.com/openshift/api/networkoperator
 github.com/openshift/api/networkoperator/v1
 github.com/openshift/api/oauth
@@ -320,6 +321,11 @@ github.com/openshift/client-go/machine/clientset/versioned/typed/machine/v1beta1
 github.com/openshift/client-go/machine/informers/externalversions/internalinterfaces
 github.com/openshift/client-go/machine/informers/externalversions/machine/v1beta1
 github.com/openshift/client-go/machine/listers/machine/v1beta1
+# github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250508102448-0c09d94906d0
+## explicit; go 1.20
+github.com/openshift/cluster-api-actuator-pkg/testutils/resourcebuilder
+github.com/openshift/cluster-api-actuator-pkg/testutils/resourcebuilder/config/v1
+github.com/openshift/cluster-api-actuator-pkg/testutils/resourcebuilder/machine/v1beta1
 # github.com/openshift/library-go v0.0.0-20231003133513-3a0c1fc00519
 ## explicit; go 1.20
 github.com/openshift/library-go/pkg/config/clusterstatus
@@ -428,8 +434,8 @@ go.uber.org/zap/internal/color
 go.uber.org/zap/internal/exit
 go.uber.org/zap/internal/pool
 go.uber.org/zap/zapcore
-# golang.org/x/exp v0.0.0-20220827204233-334a2380cb91
-## explicit; go 1.18
+# golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea
+## explicit; go 1.20
 golang.org/x/exp/maps
 # golang.org/x/mod v0.12.0
 ## explicit; go 1.17
