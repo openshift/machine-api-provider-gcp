@@ -7,8 +7,9 @@ require (
 	github.com/go-logr/logr v1.2.4
 	github.com/onsi/ginkgo/v2 v2.12.1
 	github.com/onsi/gomega v1.28.0
-	github.com/openshift/api v0.0.0-20230928105710-23b54c280f99
+	github.com/openshift/api v0.0.0-20231120222239-b86761094ee3
 	github.com/openshift/client-go v0.0.0-20230926161409-848405da69e1
+	github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250508102448-0c09d94906d0
 	github.com/openshift/library-go v0.0.0-20231003133513-3a0c1fc00519
 	github.com/openshift/machine-api-operator v0.2.1-0.20230929171041-2cc7fcf262f3
 	golang.org/x/oauth2 v0.8.0
@@ -93,7 +94,7 @@ require (
 	go.starlark.net v0.0.0-20230525235612-a134d8f9ddca // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.25.0 // indirect
-	golang.org/x/exp v0.0.0-20220827204233-334a2380cb91 // indirect
+	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea // indirect
 	golang.org/x/mod v0.12.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
