@@ -7,8 +7,9 @@ require (
 	github.com/go-logr/logr v1.2.4
 	github.com/onsi/ginkgo/v2 v2.9.5
 	github.com/onsi/gomega v1.27.7
-	github.com/openshift/api v0.0.0-20230804173756-26b8597c4de2
+	github.com/openshift/api v0.0.0-20230822121351-cd0541be0908
 	github.com/openshift/client-go v0.0.0-20230503144108-75015d2347cb
+	github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250516114005-31fdc6c6950d
 	github.com/openshift/library-go v0.0.0-20230508110756-9b7abe2c9cbf
 	github.com/openshift/machine-api-operator v0.2.1-0.20230524144558-2430daf07c93
 	golang.org/x/oauth2 v0.6.0
