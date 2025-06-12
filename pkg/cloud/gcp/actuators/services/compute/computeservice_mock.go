@@ -21,8 +21,10 @@ const (
 	ErrGettingBackendService       = "errGettingBackendService"
 	ErrFailGroupGet                = "errFailGroupGet"
 	ErrGroupNotFound               = "errGroupNotFound"
+	ErrImageNotFound               = "errImageNotFound"
 	PatchBackendService            = "patchBackendService"
 	AddGroupSuccessfully           = "addGroupSuccessfully"
+	UEFICompatible                 = "UEFI_COMPATIBLE"
 )
 
 type GCPComputeServiceMock struct {
@@ -246,4 +248,38 @@ func (c *GCPComputeServiceMock) BackendServiceGet(project string, region string,
 			},
 		},
 	}, nil
+}
+
+func (c *GCPComputeServiceMock) ImageGet(project string, image string) (*compute.Image, error) {
+	if project == ErrImageNotFound {
+		return nil, errors.New("imageGet request failed")
+	}
+
+	img := &compute.Image{
+		GuestOsFeatures: make([]*compute.GuestOsFeature, 0),
+	}
+
+	if image == "uefi-image" {
+		img.GuestOsFeatures = append(img.GuestOsFeatures, &compute.GuestOsFeature{Type: UEFICompatible})
+	}
+
+	return img, nil
+}
+
+func (c *GCPComputeServiceMock) ImageFamilyGet(project, zone, family string) (*compute.ImageFamilyView, error) {
+	if project == ErrImageNotFound {
+		return nil, errors.New("imageGet request failed")
+	}
+
+	imgView := &compute.ImageFamilyView{
+		Image: &compute.Image{
+			GuestOsFeatures: make([]*compute.GuestOsFeature, 0),
+		},
+	}
+
+	if family == "uefi-image-family" {
+		imgView.Image.GuestOsFeatures = append(imgView.Image.GuestOsFeatures, &compute.GuestOsFeature{Type: UEFICompatible})
+	}
+
+	return imgView, nil
 }

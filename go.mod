@@ -8,6 +8,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.8.0
 	github.com/onsi/gomega v1.26.0
 	github.com/openshift/api v0.0.0-20230210191657-68f4ffcda083
+	github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250605024240-6bea82801456
 	github.com/openshift/machine-api-operator v0.2.1-0.20230210141533-c47a0529c978
 	golang.org/x/oauth2 v0.0.0-20221014153046-6fdb5e3db783
 	google.golang.org/api v0.107.0
@@ -15,7 +16,7 @@ require (
 	k8s.io/apimachinery v0.26.1
 	k8s.io/client-go v0.26.1
 	k8s.io/klog/v2 v2.80.1
-	k8s.io/utils v0.0.0-20221128185143-99ec85e7a448
+	k8s.io/utils v0.0.0-20230115233650-391b47cb4029
 	sigs.k8s.io/controller-runtime v0.14.4
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20230131195449-5db173878d6d
 	sigs.k8s.io/controller-tools v0.11.3
@@ -82,7 +83,7 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
-	github.com/rogpeppe/go-internal v1.8.1 // indirect
+	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/spf13/afero v1.9.3 // indirect
 	github.com/spf13/cobra v1.6.1 // indirect

@@ -12,6 +12,7 @@ import (
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"github.com/openshift/machine-api-operator/pkg/metrics"
 	"github.com/openshift/machine-api-operator/pkg/util/windows"
+	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	"google.golang.org/api/compute/v1"
 	googleapi "google.golang.org/api/googleapi"
 	corev1 "k8s.io/api/core/v1"
@@ -187,6 +188,35 @@ func (r *Reconciler) create() error {
 		return machinecontroller.InvalidMachineConfiguration("failed to determine restart policy: %v", err)
 	} else {
 		instance.Scheduling.AutomaticRestart = automaticRestart
+	}
+
+	// This is mostly to smooth off a rough edge, and hopefully should not be a
+	// case that is hit often. If an existing machineset has a non UEFI
+	// compatible disk, the check in the machineset controller should explicitly
+	// disable any ShieldedInstanceConfig, however, if a customer is using custom
+	// disk images that don't support UEFI and creating new machinesets we may
+	// still fail as the create() from the MAO may reconcile before the
+	// machineset reconciliation in MAPG.
+	//
+	// If the providerSpec sets any ShieldedInstanceConfig, we won't check UEFI
+	// disk compatibility.
+	if r.providerSpec.ShieldedInstanceConfig == (machinev1.GCPShieldedInstanceConfig{}) {
+		klog.V(3).Infof("No ShieldedInstanceConfig set for machine: %s, checking if disk is UEFI compatible", r.machine.Name)
+		uefiCompatible, err := util.IsUEFICompatible(r.computeService, r.providerSpec)
+		if err != nil {
+			return fmt.Errorf("error fetching disk information: %w", err)
+		}
+
+		// We do this here so we piggyback defaulting and ForceSendFields below
+		// will still work nicely.
+		if !uefiCompatible {
+			klog.Infof("Disk for machine %s is not UEFI compatible, disabling ShieldedInstanceConfig", r.machine.Name)
+			r.providerSpec.ShieldedInstanceConfig = machinev1.GCPShieldedInstanceConfig{
+				SecureBoot:                       machinev1.SecureBootPolicyDisabled,
+				VirtualizedTrustedPlatformModule: machinev1.VirtualizedTrustedPlatformModulePolicyDisabled,
+				IntegrityMonitoring:              machinev1.IntegrityMonitoringPolicyDisabled,
+			}
+		}
 	}
 
 	if r.providerSpec.ShieldedInstanceConfig.SecureBoot == machinev1.SecureBootPolicyEnabled {
