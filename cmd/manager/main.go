@@ -82,6 +82,12 @@ func main() {
 		"Address for hosting metrics",
 	)
 
+	maxConcurrentReconciles := flag.Int(
+		"max-concurrent-reconciles",
+		1,
+		"Maximum number of concurrent reconciles per controller instance.",
+	)
+
 	// Sets up feature gates
 	defaultMutableGate := feature.DefaultMutableFeatureGate
 	gateOpts, err := features.NewFeatureGateOptions(defaultMutableGate, apifeatures.SelfManaged, apifeatures.FeatureGateMachineAPIMigration, apifeatures.FeatureGateGCPCustomAPIEndpoints)
@@ -166,7 +172,9 @@ func main() {
 		klog.Fatal(err)
 	}
 
-	if err := capimachine.AddWithActuator(mgr, machineActuator, defaultMutableGate); err != nil {
+	if err := capimachine.AddWithActuatorOpts(mgr, machineActuator, controller.Options{
+		MaxConcurrentReconciles: *maxConcurrentReconciles,
+	}, defaultMutableGate); err != nil {
 		klog.Fatal(err)
 	}
 
