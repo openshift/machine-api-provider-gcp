@@ -101,7 +101,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 			return nil, machineapierros.InvalidMachineConfiguration("error getting compute service endpoint: %v", err)
 		}
 
-		tagsEndpoint, err = lookupFunc(params.coreClient, configv1.GCPServiceEndpointNameTagManager)
+		tagsEndpoint, err = lookupFunc(params.coreClient, "TagManager")
 		if err != nil {
 			return nil, machineapierros.InvalidMachineConfiguration("error getting tag manager service endpoint: %v", err)
 		}
