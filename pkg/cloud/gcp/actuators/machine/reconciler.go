@@ -94,7 +94,7 @@ func restartPolicyToBool(policy machinev1.GCPRestartPolicyType, preemptible bool
 func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) error {
 	region, err := r.computeService.RegionGet(r.projectID, r.providerSpec.Region)
 	if err != nil {
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Failed to get region %s via compute service: %v", r.providerSpec.Region, err))
+		return machinecontroller.InvalidMachineConfiguration("Failed to get region %s via compute service: %v", r.providerSpec.Region, err)
 	}
 	quotas := region.Quotas
 	// validate zone and then quota
@@ -103,11 +103,11 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 	accelerator := guestAccelerators[0]
 	_, err = r.computeService.AcceleratorTypeGet(r.projectID, r.providerSpec.Zone, accelerator.Type)
 	if err != nil {
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("AcceleratorType %s not available in the zone %s : %v", accelerator.Type, r.providerSpec.Zone, err))
+		return machinecontroller.InvalidMachineConfiguration("AcceleratorType %s not available in the zone %s : %v", accelerator.Type, r.providerSpec.Zone, err)
 	}
 	metric := supportedGpuTypes[accelerator.Type]
 	if metric == "" {
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Unsupported accelerator type %s", accelerator.Type))
+		return machinecontroller.InvalidMachineConfiguration("Unsupported accelerator type %s", accelerator.Type)
 	}
 	// preemptible instances have separate quota
 	if r.providerSpec.Preemptible {
@@ -118,7 +118,7 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 	for i, q := range quotas {
 		if q.Metric == metric {
 			if int32(q.Usage)+accelerator.Count > int32(q.Limit) {
-				return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("Quota exceeded. Metric: %s. Usage: %v. Limit: %v.", metric, q.Usage, q.Limit))
+				return machinecontroller.InvalidMachineConfiguration("Quota exceeded. Metric: %s. Usage: %v. Limit: %v.", metric, q.Usage, q.Limit)
 			}
 			break
 		}
@@ -149,7 +149,7 @@ func (r *Reconciler) validateGuestAccelerators() error {
 		return machinecontroller.InvalidMachineConfiguration("A2 and A3 Machine types have pre-attached guest accelerators. Adding additional guest accelerators is not supported")
 	}
 	if !strings.HasPrefix(r.providerSpec.MachineType, "n1-") && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") && !strings.HasPrefix(r.providerSpec.MachineType, "a3-") {
-		return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("MachineType %s does not support accelerators. Only A2, A3 and N1 machine type families support guest accelerators.", r.providerSpec.MachineType))
+		return machinecontroller.InvalidMachineConfiguration("MachineType %s does not support accelerators. Only A2, A3 and N1 machine type families support guest accelerators.", r.providerSpec.MachineType)
 	}
 	a2or3MachineFamily, n1MachineFamily := r.computeService.GPUCompatibleMachineTypesList(r.providerSpec.ProjectID, r.providerSpec.Zone, r.Context)
 	machineType := r.providerSpec.MachineType
@@ -167,7 +167,7 @@ func (r *Reconciler) validateGuestAccelerators() error {
 	}
 
 	// any other machine type
-	return machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("MachineType %s is not available in the zone %s.", r.providerSpec.MachineType, r.providerSpec.Zone))
+	return machinecontroller.InvalidMachineConfiguration("MachineType %s is not available in the zone %s.", r.providerSpec.MachineType, r.providerSpec.Zone)
 }
 
 // Create creates machine if and only if machine exists, handled by cluster-api
@@ -591,11 +591,11 @@ func (r *Reconciler) exists() (bool, error) {
 		// us to delete machines that were never properly created due to
 		// invalid zone or project.
 		if isProjectNotFoundError(err, r.projectID) {
-			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Project does not exist", r.projectID))
+			return false, machinecontroller.InvalidMachineConfiguration("%s: Project does not exist", r.projectID)
 		}
 
 		if isInvalidZone(err) {
-			return false, machinecontroller.InvalidMachineConfiguration(fmt.Sprintf("%s: Zone does not exist", r.providerSpec.Zone))
+			return false, machinecontroller.InvalidMachineConfiguration("%s: Zone does not exist", r.providerSpec.Zone)
 		}
 
 		if isNotFoundError(err) {
