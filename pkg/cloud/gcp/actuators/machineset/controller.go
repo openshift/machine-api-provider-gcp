@@ -221,7 +221,7 @@ func (r *Reconciler) getRealGCPService(namespace string, providerConfig machinev
 	}
 
 	var endpoint *configv1.GCPServiceEndpoint = nil
-	if r.FeatureGates.Enabled(featuregate.Feature(apifeatures.FeatureGateGCPCustomAPIEndpoints)) {
+	if r.FeatureGates.Enabled(featuregate.Feature(apifeatures.FeatureGateGCPCustomAPIEndpointsInstall)) {
 		endpoint, err = util.GetGCPServiceEndpoint(r.Client, configv1.GCPServiceEndpointNameCompute)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get GCP compute service endpoint: %v", err)

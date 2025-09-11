@@ -10,7 +10,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.1
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
-	github.com/openshift/api v0.0.0-20250724151358-f313adb86331
+	github.com/openshift/api v0.0.0-20250806102053-6a7223edb2fc
 	github.com/openshift/cluster-api-actuator-pkg/testutils v0.0.0-20250718085303-e712b1ebf374
 	github.com/openshift/library-go v0.0.0-20250724123005-03d85c4e997c
 	github.com/openshift/machine-api-operator v0.2.1-0.20250724145424-66e6d1f43b3c

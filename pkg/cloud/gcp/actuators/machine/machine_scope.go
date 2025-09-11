@@ -90,7 +90,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 
 	var computeEndpoint *configv1.GCPServiceEndpoint = nil
 	var tagsEndpoint *configv1.GCPServiceEndpoint = nil
-	if params.featureGates.Enabled(featuregate.Feature(apifeatures.FeatureGateGCPCustomAPIEndpoints)) {
+	if params.featureGates.Enabled(featuregate.Feature(apifeatures.FeatureGateGCPCustomAPIEndpointsInstall)) {
 		lookupFunc := params.endpointLookup
 		if lookupFunc == nil {
 			lookupFunc = util.GetGCPServiceEndpoint
