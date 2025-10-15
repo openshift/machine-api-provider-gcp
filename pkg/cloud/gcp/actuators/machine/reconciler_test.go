@@ -746,6 +746,35 @@ func TestCreate(t *testing.T) {
 			expectedError: errors.New("failed to fetch user-defined tags for : failed to fetch openshift/key2/value2 tag details: googleapi: Error 500: Internal error while fetching 'openshift/key2/value2'"),
 		},
 		{
+			name: "a3-ultragpu (H200 GPUs) instance create succeeds when quota is not available",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:      "test-region",
+				Zone:        "test-zone",
+				MachineType: "a3-ultragpu-8g",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			mockGPUCompatibleMachineTypesList: func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string) {
+				var compatibleMachineType = []string{}
+				var gpuInfo = map[string]computeservice.GpuInfo{
+					"a3-ultragpu-8g": {
+						Type:  "nvidia-h200-141gb",
+						Count: 1,
+					},
+				}
+				return gpuInfo, compatibleMachineType
+			},
+			mockRegionGet: func(project string, region string) (*compute.Region, error) {
+				var computeQuota = &compute.Quota{}
+				var computeRegion = &compute.Region{Quotas: []*compute.Quota{computeQuota}}
+				return computeRegion, nil
+			},
+		},
+		{
 			name: "Create spot instance successfully",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				Region:            "test-region",
