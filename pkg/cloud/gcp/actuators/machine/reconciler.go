@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -73,14 +74,28 @@ func containsString(sli []string, str string) bool {
 	return false
 }
 
-func restartPolicyToBool(policy machinev1.GCPRestartPolicyType, preemptible bool) (*bool, error) {
+// toComputeProvisioningModel converts the GCPProvisioningModelType to the string expected by the GCP Compute API
+func toComputeProvisioningModel(model *machinev1.GCPProvisioningModelType) (string, error) {
+	modelValue := ptr.Deref(model, "")
+
+	switch modelValue {
+	case "":
+		return "", nil
+	case machinev1.GCPSpotInstance:
+		return "SPOT", nil
+	}
+
+	return "", fmt.Errorf("unsupported provisioning model value %s", modelValue)
+}
+
+func restartPolicyToBool(policy machinev1.GCPRestartPolicyType, preemptible bool, provisioningModel *machinev1.GCPProvisioningModelType) (*bool, error) {
 	// for more information about how the restart policy works, see the GCP docs at
 	// https://cloud.google.com/compute/docs/instances/setting-vm-host-options#settingoptions
 	if len(policy) == 0 {
 		return nil, nil
 	} else if policy == machinev1.RestartPolicyAlways {
-		if preemptible {
-			return nil, errors.New("preemptible instances cannot be automatically restarted")
+		if preemptible || (provisioningModel != nil && *provisioningModel == machinev1.GCPSpotInstance) {
+			return nil, errors.New("preemptible/spot instances cannot be automatically restarted")
 		}
 		return pointer.Bool(true), nil
 	} else if policy == machinev1.RestartPolicyNever {
@@ -109,8 +124,8 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 	if metric == "" {
 		return machinecontroller.InvalidMachineConfiguration("Unsupported accelerator type %s", accelerator.Type)
 	}
-	// preemptible instances have separate quota
-	if r.providerSpec.Preemptible {
+	// preemptible and spot instances have separate quota with "PREEMPTIBLE_" prefix
+	if r.providerSpec.Preemptible || (r.providerSpec.ProvisioningModel != nil && *r.providerSpec.ProvisioningModel == machinev1.GCPSpotInstance) {
 		metric = "PREEMPTIBLE_" + metric
 	}
 
@@ -182,6 +197,12 @@ func (r *Reconciler) create() error {
 	}
 
 	zone := r.providerSpec.Zone
+
+	provisioningModel, err := toComputeProvisioningModel(r.providerSpec.ProvisioningModel)
+	if err != nil {
+		return fmt.Errorf("failed to convert provisioning model: %w", err)
+	}
+
 	instance := &compute.Instance{
 		CanIpForward:       r.providerSpec.CanIPForward,
 		DeletionProtection: r.providerSpec.DeletionProtection,
@@ -194,6 +215,7 @@ func (r *Reconciler) create() error {
 		Scheduling: &compute.Scheduling{
 			Preemptible:       r.providerSpec.Preemptible,
 			OnHostMaintenance: string(r.providerSpec.OnHostMaintenance),
+			ProvisioningModel: provisioningModel,
 		},
 		ShieldedInstanceConfig: &compute.ShieldedInstanceConfig{
 			EnableSecureBoot:          false,
@@ -210,7 +232,7 @@ func (r *Reconciler) create() error {
 		ResourceManagerTags: userTags,
 	}
 
-	if automaticRestart, err := restartPolicyToBool(r.providerSpec.RestartPolicy, r.providerSpec.Preemptible); err != nil {
+	if automaticRestart, err := restartPolicyToBool(r.providerSpec.RestartPolicy, r.providerSpec.Preemptible, r.providerSpec.ProvisioningModel); err != nil {
 		return machinecontroller.InvalidMachineConfiguration("failed to determine restart policy: %v", err)
 	} else {
 		instance.Scheduling.AutomaticRestart = automaticRestart
@@ -519,8 +541,13 @@ func (r *Reconciler) setMachineCloudProviderSpecifics(instance *compute.Instance
 	r.machine.Labels[machinecontroller.MachineRegionLabelName] = r.providerSpec.Region
 	r.machine.Labels[machinecontroller.MachineAZLabelName] = r.providerSpec.Zone
 
-	if r.providerSpec.Preemptible {
-		// Label on the Machine so that an MHC can select Preemptible instances
+	spotProvisioningModel, err := toComputeProvisioningModel(ptr.To(machinev1.GCPSpotInstance))
+	if err != nil {
+		panic(err) // function recieves constant value, so we can panic
+	}
+	isSpot := instance.Scheduling != nil && instance.Scheduling.ProvisioningModel == spotProvisioningModel
+	if r.providerSpec.Preemptible || isSpot {
+		// Label on the Machine so that an MHC can select Preemptible/Spot instances
 		r.machine.Labels[machinecontroller.MachineInterruptibleInstanceLabelName] = ""
 
 		if r.machine.Spec.Labels == nil {
@@ -563,6 +590,14 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 
 	if machine.Labels[machinev1.MachineClusterIDLabel] == "" {
 		return machinecontroller.InvalidMachineConfiguration("machine is missing %q label", machinev1.MachineClusterIDLabel)
+	}
+
+	if providerSpec.ProvisioningModel != nil && *providerSpec.ProvisioningModel != machinev1.GCPSpotInstance {
+		return machinecontroller.InvalidMachineConfiguration("Unsupported provisioning model %q, Valid value is %q. Omit provisioningModel for standard.", *providerSpec.ProvisioningModel, machinev1.GCPSpotInstance)
+	}
+
+	if providerSpec.Preemptible && providerSpec.ProvisioningModel != nil && *providerSpec.ProvisioningModel == machinev1.GCPSpotInstance {
+		return machinecontroller.InvalidMachineConfiguration("preemptible cannot be used together with 'Spot' provisioning model")
 	}
 
 	return nil
