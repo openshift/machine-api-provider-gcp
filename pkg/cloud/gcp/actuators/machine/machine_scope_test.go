@@ -192,7 +192,7 @@ func TestNewMachineScope(t *testing.T) {
 			name: "fail to create compute service",
 			params: machineScopeParams{
 				coreClient: fakeClient,
-				computeClientBuilder: func(serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (computeservice.GCPComputeService, error) {
+				computeClientBuilder: func(serviceAccountJSON string) (computeservice.GCPComputeService, error) {
 					return nil, errors.New("test error")
 				},
 				machine: &machinev1.Machine{
@@ -221,7 +221,6 @@ func TestNewMachineScope(t *testing.T) {
 			gate, err := NewDefaultMutableFeatureGate(nil)
 			gs.Expect(err).To(Not(HaveOccurred()))
 			tc.params.featureGates = gate
-			tc.params.endpointLookup = util.MockGCPEndpointLookup
 
 			scope, err := newMachineScope(tc.params)
 
@@ -427,7 +426,6 @@ func TestPatchMachine(t *testing.T) {
 				computeClientBuilder: computeservice.MockBuilderFuncType,
 				tagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
 				featureGates:         gate,
-				endpointLookup:       util.MockGCPEndpointLookup,
 			})
 
 			gs.Expect(err).ToNot(HaveOccurred())

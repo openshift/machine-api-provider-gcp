@@ -7,8 +7,6 @@ import (
 
 	compute "google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
-
-	configv1 "github.com/openshift/api/config/v1"
 )
 
 const (
@@ -136,12 +134,12 @@ func NewComputeServiceMock() (*compute.Instance, *GCPComputeServiceMock) {
 	return &receivedInstance, &computeServiceMock
 }
 
-func MockBuilderFuncType(serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (GCPComputeService, error) {
+func MockBuilderFuncType(serviceAccountJSON string) (GCPComputeService, error) {
 	_, computeSvc := NewComputeServiceMock()
 	return computeSvc, nil
 }
 
-func MockBuilderFuncTypeNotFound(serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (GCPComputeService, error) {
+func MockBuilderFuncTypeNotFound(serviceAccountJSON string) (GCPComputeService, error) {
 	_, computeSvc := NewComputeServiceMock()
 	computeSvc.mockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
 		return nil, &googleapi.Error{
