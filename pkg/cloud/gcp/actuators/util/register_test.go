@@ -25,7 +25,7 @@ var (
 			},
 		},
 	}
-	expectedRawForProviderSpec = `{"metadata":{"creationTimestamp":null},"userDataSecret":{"name":"myUserData"},"canIPForward":true,"deletionProtection":false,"networkInterfaces":[{"subnetwork":"my-subnet"}],"serviceAccounts":null,"machineType":"n1-standard-1","region":"us-east1","zone":"us-east1-b","shieldedInstanceConfig":{"secureBoot":"Enabled"}}`
+	expectedRawForProviderSpec = `{"metadata":{},"userDataSecret":{"name":"myUserData"},"canIPForward":true,"deletionProtection":false,"networkInterfaces":[{"subnetwork":"my-subnet"}],"serviceAccounts":null,"machineType":"n1-standard-1","region":"us-east1","zone":"us-east1-b","shieldedInstanceConfig":{"secureBoot":"Enabled"}}`
 
 	instanceID             = "my-instance-id"
 	instanceState          = "RUNNING"
@@ -33,7 +33,7 @@ var (
 		InstanceID:    &instanceID,
 		InstanceState: &instanceState,
 	}
-	expectedRawForProviderStatus = `{"metadata":{"creationTimestamp":null},"instanceId":"my-instance-id","instanceState":"RUNNING"}`
+	expectedRawForProviderStatus = `{"metadata":{},"instanceId":"my-instance-id","instanceState":"RUNNING"}`
 )
 
 func TestRawExtensionFromProviderSpec(t *testing.T) {
