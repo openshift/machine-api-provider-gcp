@@ -10,7 +10,6 @@ import (
 
 	"github.com/googleapis/gax-go/v2/apierror"
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/api/machine/v1beta1"
 	machinev1 "github.com/openshift/api/machine/v1beta1"
 	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
@@ -22,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	controllerfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -483,9 +483,9 @@ func TestCreate(t *testing.T) {
 			name: "Always restart policy with a preemptible instance produces an error",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
 				Preemptible:   true,
-				RestartPolicy: v1beta1.RestartPolicyAlways,
+				RestartPolicy: machinev1.RestartPolicyAlways,
 			},
-			expectedError: errors.New("failed to determine restart policy: preemptible instances cannot be automatically restarted"),
+			expectedError: errors.New("failed to determine restart policy: preemptible/spot instances cannot be automatically restarted"),
 		},
 		{
 			name: "Always restart policy with a non-preemptible instance does not produce an error",
@@ -497,7 +497,7 @@ func TestCreate(t *testing.T) {
 					},
 				},
 				Preemptible:   false,
-				RestartPolicy: v1beta1.RestartPolicyAlways,
+				RestartPolicy: machinev1.RestartPolicyAlways,
 			},
 		},
 		{
@@ -510,7 +510,7 @@ func TestCreate(t *testing.T) {
 					},
 				},
 				Preemptible:   true,
-				RestartPolicy: v1beta1.RestartPolicyNever,
+				RestartPolicy: machinev1.RestartPolicyNever,
 			},
 		},
 		{
@@ -523,7 +523,7 @@ func TestCreate(t *testing.T) {
 					},
 				},
 				Preemptible:   false,
-				RestartPolicy: v1beta1.RestartPolicyNever,
+				RestartPolicy: machinev1.RestartPolicyNever,
 			},
 		},
 		{
@@ -744,6 +744,61 @@ func TestCreate(t *testing.T) {
 				},
 			},
 			expectedError: errors.New("failed to fetch user-defined tags for : failed to fetch openshift/key2/value2 tag details: googleapi: Error 500: Internal error while fetching 'openshift/key2/value2'"),
+		},
+		{
+			name: "Create spot instance successfully",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:            "test-region",
+				Zone:              "test-zone",
+				MachineType:       "n1-standard-4",
+				ProvisioningModel: ptr.To(machinev1.GCPSpotInstance),
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				expectedProvisioningModel, err := toComputeProvisioningModel(ptr.To(machinev1.GCPSpotInstance))
+				if err != nil {
+					t.Fatalf("failed to get expected provisioning model: %v", err)
+				}
+				if instance.Scheduling.ProvisioningModel != expectedProvisioningModel {
+					t.Errorf("expected ProvisioningModel to be %q, Got: %s", expectedProvisioningModel, instance.Scheduling.ProvisioningModel)
+				}
+			},
+		},
+		{
+			name: "Fail on invalid provisioning model",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:            "test-region",
+				Zone:              "test-zone",
+				ProvisioningModel: ptr.To(machinev1.GCPProvisioningModelType("InvalidModel")),
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			expectedError: errors.New("failed validating machine provider spec: Unsupported provisioning model \"InvalidModel\", Valid value is \"Spot\". Omit provisioningModel for standard."),
+		},
+		{
+			name: "Fail when both preemptible and spot are set",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Region:            "test-region",
+				Zone:              "test-zone",
+				Preemptible:       true,
+				ProvisioningModel: ptr.To(machinev1.GCPSpotInstance),
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			expectedError: errors.New("failed validating machine provider spec: preemptible cannot be used together with 'Spot' provisioning model"),
 		},
 	}
 
@@ -1444,73 +1499,106 @@ func TestSetMachineCloudProviderSpecifics(t *testing.T) {
 
 func TestRestartPolicyToBool(t *testing.T) {
 	cases := []struct {
-		name           string
-		policy         v1beta1.GCPRestartPolicyType
-		preemptible    bool
-		expectedReturn *bool
-		expectedError  error
+		name              string
+		policy            machinev1.GCPRestartPolicyType
+		preemptible       bool
+		provisioningModel *machinev1.GCPProvisioningModelType
+		expectedReturn    *bool
+		expectedError     error
 	}{
 		{
-			name:           "Empty policy with non-preemptible returns nil and no error",
-			policy:         "",
-			preemptible:    false,
-			expectedReturn: nil,
-			expectedError:  nil,
+			name:              "Empty policy with non-preemptible returns nil and no error",
+			policy:            "",
+			preemptible:       false,
+			provisioningModel: nil,
+			expectedReturn:    nil,
+			expectedError:     nil,
 		},
 		{
-			name:           "Empty policy with preemptible returns nil and no error",
-			policy:         "",
-			preemptible:    true,
-			expectedReturn: nil,
-			expectedError:  nil,
+			name:              "Empty policy with preemptible returns nil and no error",
+			policy:            "",
+			preemptible:       true,
+			provisioningModel: nil,
+			expectedReturn:    nil,
+			expectedError:     nil,
 		},
 		{
-			name:           "Always policy with non-preemptible returns true and no error",
-			policy:         v1beta1.RestartPolicyAlways,
-			preemptible:    false,
-			expectedReturn: pointer.Bool(true),
-			expectedError:  nil,
+			name:              "Empty policy with spot provisioning model returns nil and no error",
+			policy:            "",
+			preemptible:       false,
+			provisioningModel: ptr.To(machinev1.GCPSpotInstance),
+			expectedReturn:    nil,
+			expectedError:     nil,
 		},
 		{
-			name:           "Always policy with preemptible returns nil and an error",
-			policy:         v1beta1.RestartPolicyAlways,
-			preemptible:    true,
-			expectedReturn: nil,
-			expectedError:  errors.New("preemptible instances cannot be automatically restarted"),
+			name:              "Always policy with non-preemptible returns true and no error",
+			policy:            machinev1.RestartPolicyAlways,
+			preemptible:       false,
+			provisioningModel: nil,
+			expectedReturn:    pointer.Bool(true),
+			expectedError:     nil,
 		},
 		{
-			name:           "Never policy with non-preemptible returns false and no error",
-			policy:         v1beta1.RestartPolicyNever,
-			preemptible:    false,
-			expectedReturn: pointer.Bool(false),
-			expectedError:  nil,
+			name:              "Always policy with preemptible returns nil and an error",
+			policy:            machinev1.RestartPolicyAlways,
+			preemptible:       true,
+			provisioningModel: nil,
+			expectedReturn:    nil,
+			expectedError:     errors.New("preemptible/spot instances cannot be automatically restarted"),
 		},
 		{
-			name:           "Never policy with preemptible returns false and no error",
-			policy:         v1beta1.RestartPolicyNever,
-			preemptible:    true,
-			expectedReturn: pointer.Bool(false),
-			expectedError:  nil,
+			name:              "Always policy with spot provisioning model returns nil and an error",
+			policy:            machinev1.RestartPolicyAlways,
+			preemptible:       false,
+			provisioningModel: ptr.To(machinev1.GCPSpotInstance),
+			expectedReturn:    nil,
+			expectedError:     errors.New("preemptible/spot instances cannot be automatically restarted"),
 		},
 		{
-			name:           "Unknown policy with non-preemptible returns nil and an error",
-			policy:         "SometimesMaybe",
-			preemptible:    false,
-			expectedReturn: nil,
-			expectedError:  errors.New("unrecognized restart policy: SometimesMaybe"),
+			name:              "Never policy with non-preemptible returns false and no error",
+			policy:            machinev1.RestartPolicyNever,
+			preemptible:       false,
+			provisioningModel: nil,
+			expectedReturn:    pointer.Bool(false),
+			expectedError:     nil,
 		},
 		{
-			name:           "Unknown policy with preemptible returns nil and an error",
-			policy:         "SometimesMaybe",
-			preemptible:    true,
-			expectedReturn: nil,
-			expectedError:  errors.New("unrecognized restart policy: SometimesMaybe"),
+			name:              "Never policy with preemptible returns false and no error",
+			policy:            machinev1.RestartPolicyNever,
+			preemptible:       true,
+			provisioningModel: nil,
+			expectedReturn:    pointer.Bool(false),
+			expectedError:     nil,
+		},
+		{
+			name:              "Never policy with spot provisioning model returns false and no error",
+			policy:            machinev1.RestartPolicyNever,
+			preemptible:       false,
+			provisioningModel: ptr.To(machinev1.GCPSpotInstance),
+			expectedReturn:    pointer.Bool(false),
+			expectedError:     nil,
+		},
+		{
+			name:              "Unknown policy with non-preemptible returns nil and an error",
+			policy:            "SometimesMaybe",
+			preemptible:       false,
+			provisioningModel: nil,
+			expectedReturn:    nil,
+			expectedError:     errors.New("unrecognized restart policy: SometimesMaybe"),
+		},
+		{
+			name:              "Unknown policy with preemptible returns nil and an error",
+			policy:            "SometimesMaybe",
+			preemptible:       true,
+			provisioningModel: nil,
+			expectedReturn:    nil,
+			expectedError:     errors.New("unrecognized restart policy: SometimesMaybe"),
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			observedReturn, observedError := restartPolicyToBool(tc.policy, tc.preemptible)
+			observedReturn, observedError := restartPolicyToBool(tc.policy, tc.preemptible, tc.provisioningModel)
 
 			if tc.expectedReturn == nil && observedReturn != nil {
 				t.Errorf("Expected nil return value, got: %v", *observedReturn)
