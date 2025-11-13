@@ -156,7 +156,7 @@ func (r *Reconciler) validateGuestAccelerators() error {
 	// machine types that have GPUs included would skip this function. The ultimate result for users it that new GPU
 	// machine types will not have accurate quota reporting. If machines are being pathologically deleted and recreated
 	// it may be a sign of a quota issue.
-	if len(r.providerSpec.GPUs) == 0 && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") && !strings.HasPrefix(r.providerSpec.MachineType, "a3-") {
+	if len(r.providerSpec.GPUs) == 0 && !strings.HasPrefix(r.providerSpec.MachineType, "a2-") && !strings.HasPrefix(r.providerSpec.MachineType, "a3-") || strings.HasPrefix(r.providerSpec.MachineType, "a3-ultragpu-") {
 		// no accelerators to validate so return nil
 		return nil
 	}
