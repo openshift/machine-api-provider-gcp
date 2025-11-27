@@ -4,8 +4,6 @@ import (
 	"context"
 
 	tags "google.golang.org/api/cloudresourcemanager/v3"
-
-	configv1 "github.com/openshift/api/config/v1"
 )
 
 // MockTagService mocks TagService interface for tests.
@@ -19,7 +17,7 @@ func NewMockTagService() *MockTagService {
 }
 
 // NewMockTagServiceBuilder returns new mock for creating GCP tag client.
-func NewMockTagServiceBuilder(ctx context.Context, serviceAccountJSON string, endpoint *configv1.GCPServiceEndpoint) (TagService, error) {
+func NewMockTagServiceBuilder(ctx context.Context, serviceAccountJSON string) (TagService, error) {
 	return NewMockTagService(), nil
 }
 
