@@ -317,7 +317,8 @@ func TestCreate(t *testing.T) {
 				Region:    "test-region",
 				Disks: []*machinev1.GCPDisk{
 					{
-						Boot: true,
+						Boot:  true,
+						Image: "projects/fooproject/global/images/test-image",
 						EncryptionKey: &machinev1.GCPEncryptionKeyReference{
 							KMSKey: &machinev1.GCPKMSKeyReference{
 								Name:      "kms-key-name",
@@ -382,6 +383,49 @@ func TestCreate(t *testing.T) {
 				expectedKmsKeyServiceAccount := ""
 				if diskEncryption.KmsKeyServiceAccount != expectedKmsKeyServiceAccount {
 					t.Errorf("Expected KmsKeyServiceAccount: %q, Got KmsKeyServiceAccount: %q", expectedKmsKeyServiceAccount, diskEncryption.KmsKeyServiceAccount)
+				}
+			},
+		},
+		{
+			name: "Boot disk without image fails validation",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "",
+					},
+				},
+			},
+			expectedError: machinecontroller.InvalidMachineConfiguration("boot disk must specify an image"),
+		},
+		{
+			name: "Secondary disk without image creates blank disk",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+					{
+						Boot:       false,
+						Image:      "",
+						SizeGB:     100,
+						Type:       "pd-standard",
+						AutoDelete: true,
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.Disks) != 2 {
+					t.Errorf("expected two disks, got %d", len(instance.Disks))
+				}
+				if instance.Disks[1].InitializeParams.SourceImage != "" {
+					t.Errorf("Expected blank disk (empty SourceImage), got: %q", instance.Disks[1].InitializeParams.SourceImage)
+				}
+				if instance.Disks[1].InitializeParams.DiskSizeGb != 100 {
+					t.Errorf("Expected disk size 100, got: %d", instance.Disks[1].InitializeParams.DiskSizeGb)
 				}
 			},
 		},
