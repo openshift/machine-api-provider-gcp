@@ -314,10 +314,14 @@ func (r *Reconciler) create() error {
 	// disks
 	var disks = []*compute.AttachedDisk{}
 	for _, disk := range r.providerSpec.Disks {
-		srcImage := disk.Image
-		if !strings.Contains(disk.Image, "/") {
-			// only image name provided therefore defaulting to the current project
-			srcImage = googleapi.ResolveRelative(r.computeService.BasePath(), fmt.Sprintf("projects/%s/global/images/%s", r.projectID, disk.Image))
+		srcImage := ""
+		if disk.Image != "" {
+			srcImage = disk.Image
+			if !strings.Contains(disk.Image, "/") {
+				srcImage = googleapi.ResolveRelative(r.computeService.BasePath(), fmt.Sprintf("projects/%s/global/images/%s", r.projectID, disk.Image))
+			}
+		} else if disk.Boot {
+			return machinecontroller.InvalidMachineConfiguration("boot disk must specify an image")
 		}
 
 		labels, err := util.GetLabelsList(r.coreClient, r.machine.Labels[machinev1.MachineClusterIDLabel], disk.Labels)
@@ -325,16 +329,21 @@ func (r *Reconciler) create() error {
 			return fmt.Errorf("error getting user-defined labels for machine disk %s: %w", r.machine.Name, err)
 		}
 
+		initParams := &compute.AttachedDiskInitializeParams{
+			DiskSizeGb:          disk.SizeGB,
+			DiskType:            fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
+			Labels:              labels,
+			ResourceManagerTags: userTags,
+		}
+		// Only set SourceImage if it's not empty (blank disk if empty)
+		if srcImage != "" {
+			initParams.SourceImage = srcImage
+		}
+
 		disks = append(disks, &compute.AttachedDisk{
-			AutoDelete: disk.AutoDelete,
-			Boot:       disk.Boot,
-			InitializeParams: &compute.AttachedDiskInitializeParams{
-				DiskSizeGb:          disk.SizeGB,
-				DiskType:            fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
-				SourceImage:         srcImage,
-				Labels:              labels,
-				ResourceManagerTags: userTags,
-			},
+			AutoDelete:        disk.AutoDelete,
+			Boot:              disk.Boot,
+			InitializeParams:  initParams,
 			DiskEncryptionKey: generateDiskEncryptionKey(disk.EncryptionKey, r.projectID),
 		})
 	}
