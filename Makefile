@@ -5,7 +5,8 @@ GOGCFLAGS ?= -gcflags=all="-N -l"
 endif
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.26
+ENVTEST_K8S_VERSION = 1.28.0
+ENVTEST_ASSETS_DIR ?= /tmp/controller-tools/envtest
 
 VERSION     ?= $(shell git describe --always --abbrev=7)
 REPO_PATH   ?= github.com/openshift/machine-api-provider-gcp
@@ -13,7 +14,6 @@ LD_FLAGS    ?= -X $(REPO_PATH)/pkg/version.Raw=$(VERSION) -extldflags -static
 BUILD_IMAGE ?= registry.ci.openshift.org/openshift/release:golang-1.19
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
-ENVTEST = go run ${PROJECT_DIR}/vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest
 
 GO111MODULE = on
 export GO111MODULE
@@ -80,9 +80,20 @@ verify-crds-sync: ## Verify that the crds in install and the ones in vendored oc
 .PHONY: test
 test: unit ## Run tests
 
+.PHONY: setup-envtest
+setup-envtest: ## Set up envtest (download kubebuilder assets)
+	@[ -f $(ENVTEST_ASSETS_DIR)/kube-apiserver ] || { \
+	set -e ;\
+	ARCH=$$(go env GOARCH) ;\
+	OS=$$(go env GOOS) ;\
+	echo "Downloading envtest binaries for k8s $(ENVTEST_K8S_VERSION) ($${OS}/$${ARCH})..." ;\
+	curl -fSL "https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v$(ENVTEST_K8S_VERSION)/envtest-v$(ENVTEST_K8S_VERSION)-$${OS}-$${ARCH}.tar.gz" -o /tmp/envtest.tar.gz ;\
+	tar -xzf /tmp/envtest.tar.gz -C /tmp/ ;\
+	}
+
 .PHONY: unit
-unit: # Run unit test
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/bin)" ./hack/test.sh
+unit: setup-envtest # Run unit test
+	KUBEBUILDER_ASSETS="$(ENVTEST_ASSETS_DIR)" ./hack/test.sh
 
 .PHONY: sec
 sec: # Run security static analysis
