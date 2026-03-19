@@ -17,6 +17,7 @@ import (
 	computeservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/compute"
 	tagservice "github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/services/tags"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
+	"github.com/openshift/machine-api-provider-gcp/pkg/version"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -445,8 +446,14 @@ func TestActuatorExists(t *testing.T) {
 }
 
 func NewDefaultMutableFeatureGate(gateConfig map[string]bool) (featuregate.MutableFeatureGate, error) {
+	// Sets up feature gates (version from build time, default 4 for unknown)
+	// Default should be changed to 5 once we branch for 5
+	majorVersion := version.Version.Major
+	if majorVersion == 0 {
+		majorVersion = 4
+	}
 	defaultMutableGate := feature.DefaultMutableFeatureGate
-	_, err := features.NewFeatureGateOptions(defaultMutableGate, openshiftfeatures.SelfManaged, openshiftfeatures.FeatureGateMachineAPIMigration)
+	_, err := features.NewFeatureGateOptions(defaultMutableGate, majorVersion, openshiftfeatures.SelfManaged, openshiftfeatures.FeatureGateMachineAPIMigration)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set up default feature gate: %w", err)
 	}
