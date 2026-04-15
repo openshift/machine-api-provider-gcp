@@ -873,6 +873,277 @@ func TestCreate(t *testing.T) {
 			},
 			expectedError: errors.New("failed validating machine provider spec: preemptible cannot be used together with 'Spot' provisioning model"),
 		},
+		{
+			name: "Dual stack networking with external IPv6 access",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Zone:      "test-zone",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:        "test-network",
+						Subnetwork:     "test-subnetwork",
+						PublicIP:       true,
+						StackType:      machinev1.DualStackStackType,
+						IPv6AccessType: machinev1.ExternalIPv6AccessType,
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.NetworkInterfaces) != 1 {
+					t.Errorf("expected one network interface, got %d", len(instance.NetworkInterfaces))
+					return
+				}
+				nic := instance.NetworkInterfaces[0]
+				if nic.StackType != "IPV4_IPV6" {
+					t.Errorf("Expected StackType: %q, Got: %q", "IPV4_IPV6", nic.StackType)
+				}
+				if len(nic.AccessConfigs) != 1 {
+					t.Errorf("Expected 1 IPv4 AccessConfig, got %d", len(nic.AccessConfigs))
+				}
+				if len(nic.Ipv6AccessConfigs) != 1 {
+					t.Errorf("Expected 1 IPv6 AccessConfig, got %d", len(nic.Ipv6AccessConfigs))
+				}
+				if len(nic.Ipv6AccessConfigs) > 0 && nic.Ipv6AccessConfigs[0].Type != "DIRECT_IPV6" {
+					t.Errorf("Expected IPv6 AccessConfig Type: %q, Got: %q", "DIRECT_IPV6", nic.Ipv6AccessConfigs[0].Type)
+				}
+			},
+		},
+		{
+			name: "Dual stack networking with internal IPv6 only",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Zone:      "test-zone",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:        "test-network",
+						Subnetwork:     "test-subnetwork",
+						StackType:      machinev1.DualStackStackType,
+						IPv6AccessType: machinev1.InternalIPv6AccessType,
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.NetworkInterfaces) != 1 {
+					t.Errorf("expected one network interface, got %d", len(instance.NetworkInterfaces))
+					return
+				}
+				nic := instance.NetworkInterfaces[0]
+				if nic.StackType != "IPV4_IPV6" {
+					t.Errorf("Expected StackType: %q, Got: %q", "IPV4_IPV6", nic.StackType)
+				}
+				// Internal IPv6 should not have IPv6 access configs
+				if len(nic.Ipv6AccessConfigs) != 0 {
+					t.Errorf("Expected 0 IPv6 AccessConfigs for internal access, got %d", len(nic.Ipv6AccessConfigs))
+				}
+			},
+		},
+		{
+			name: "Dual stack with static IPv6 address",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Zone:      "test-zone",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:        "test-network",
+						Subnetwork:     "test-subnetwork",
+						StackType:      machinev1.DualStackStackType,
+						IPv6Address:    "2600:1900:4000:318::",
+						IPv6AccessType: machinev1.ExternalIPv6AccessType,
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.NetworkInterfaces) != 1 {
+					t.Errorf("expected one network interface, got %d", len(instance.NetworkInterfaces))
+					return
+				}
+				nic := instance.NetworkInterfaces[0]
+				if nic.Ipv6Address != "2600:1900:4000:318::" {
+					t.Errorf("Expected IPv6 address: %q, Got: %q", "2600:1900:4000:318::", nic.Ipv6Address)
+				}
+			},
+		},
+		{
+			name: "Dual stack with default IPv6AccessType (should default to External)",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Zone:      "test-zone",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:    "test-network",
+						Subnetwork: "test-subnetwork",
+						StackType:  machinev1.DualStackStackType,
+						// IPv6AccessType intentionally not set - should default to External
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.NetworkInterfaces) != 1 {
+					t.Errorf("expected one network interface, got %d", len(instance.NetworkInterfaces))
+					return
+				}
+				nic := instance.NetworkInterfaces[0]
+				if nic.StackType != "IPV4_IPV6" {
+					t.Errorf("Expected StackType: %q, Got: %q", "IPV4_IPV6", nic.StackType)
+				}
+				// Should have IPv6 external access config due to default
+				if len(nic.Ipv6AccessConfigs) != 1 {
+					t.Errorf("Expected 1 IPv6 AccessConfig (default to External), got %d", len(nic.Ipv6AccessConfigs))
+				}
+				if len(nic.Ipv6AccessConfigs) > 0 && nic.Ipv6AccessConfigs[0].Type != "DIRECT_IPV6" {
+					t.Errorf("Expected IPv6 AccessConfig Type: %q, Got: %q", "DIRECT_IPV6", nic.Ipv6AccessConfigs[0].Type)
+				}
+			},
+		},
+		{
+			name: "Default to IPv4 only when stackType not specified",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Zone:      "test-zone",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:    "test-network",
+						Subnetwork: "test-subnetwork",
+						PublicIP:   true,
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.NetworkInterfaces) != 1 {
+					t.Errorf("expected one network interface, got %d", len(instance.NetworkInterfaces))
+					return
+				}
+				nic := instance.NetworkInterfaces[0]
+				if nic.StackType != "IPV4_ONLY" {
+					t.Errorf("Expected default StackType: %q, Got: %q", "IPV4_ONLY", nic.StackType)
+				}
+				if len(nic.Ipv6AccessConfigs) != 0 {
+					t.Errorf("Expected 0 IPv6 AccessConfigs for IPv4 only, got %d", len(nic.Ipv6AccessConfigs))
+				}
+			},
+		},
+		{
+			name: "Invalid stackType produces error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:    "test-network",
+						Subnetwork: "test-subnetwork",
+						StackType:  "InvalidStack",
+					},
+				},
+			},
+			expectedError: errors.New("failed validating machine provider spec: network interface 0 has invalid stackType \"InvalidStack\", valid values are: IPv4Only, DualStack"),
+		},
+		{
+			name: "IPv6AccessType with IPv4 only produces error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:        "test-network",
+						Subnetwork:     "test-subnetwork",
+						StackType:      machinev1.IPv4OnlyStackType,
+						IPv6AccessType: machinev1.ExternalIPv6AccessType,
+					},
+				},
+			},
+			expectedError: errors.New("failed validating machine provider spec: network interface 0 has ipv6AccessType set but stackType is \"IPv4Only\" (must be DualStack)"),
+		},
+		{
+			name: "Invalid IPv6AccessType produces error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:        "test-network",
+						Subnetwork:     "test-subnetwork",
+						StackType:      machinev1.DualStackStackType,
+						IPv6AccessType: "InvalidAccess",
+					},
+				},
+			},
+			expectedError: errors.New("failed validating machine provider spec: network interface 0 has invalid ipv6AccessType \"InvalidAccess\", valid values are: External, Internal"),
+		},
+		{
+			name: "IPv6Address with IPv4 only produces error",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{
+						Network:     "test-network",
+						Subnetwork:  "test-subnetwork",
+						StackType:   machinev1.IPv4OnlyStackType,
+						IPv6Address: "2600:1900:4000:318::",
+					},
+				},
+			},
+			expectedError: errors.New("failed validating machine provider spec: network interface 0 has ipv6Address set but stackType is \"IPv4Only\" (must be DualStack)"),
+		},
 	}
 
 	mockTagService := tagservice.NewMockTagService()
@@ -1069,6 +1340,124 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 	}
 	if r.machine.Status.Addresses[1] != expectedNodeAddresses[1] {
 		t.Errorf("Expected: %s, got: %s", expectedNodeAddresses[1], r.machine.Status.Addresses[1])
+	}
+
+	if r.providerID != *r.machine.Spec.ProviderID {
+		t.Errorf("Expected: %s, got: %s", r.providerID, *r.machine.Spec.ProviderID)
+	}
+	if *r.providerStatus.InstanceState != "RUNNING" {
+		t.Errorf("Expected: %s, got: %s", "RUNNING", *r.providerStatus.InstanceState)
+	}
+	if *r.providerStatus.InstanceID != instanceName {
+		t.Errorf("Expected: %s, got: %s", instanceName, *r.providerStatus.InstanceID)
+	}
+}
+
+func TestReconcileMachineWithCloudStateDualStack(t *testing.T) {
+	zone := "us-east1-b"
+	projecID := "testProject"
+	instanceName := "testInstance"
+
+	// Create mock compute service with dual stack instance
+	dualStackInstance := &compute.Instance{
+		Name:        instanceName,
+		Zone:        zone,
+		MachineType: "n1-standard-1",
+		NetworkInterfaces: []*compute.NetworkInterface{
+			{
+				NetworkIP:   "10.0.0.15",
+				Ipv6Address: "2600:1900:4000:318::",
+				StackType:   "IPV4_IPV6",
+				AccessConfigs: []*compute.AccessConfig{
+					{
+						NatIP: "35.243.147.143",
+					},
+				},
+				Ipv6AccessConfigs: []*compute.AccessConfig{
+					{
+						ExternalIpv6: "2600:1900:4000:318::1",
+						Type:         "DIRECT_IPV6",
+					},
+				},
+			},
+		},
+		Status: "RUNNING",
+	}
+
+	mockComputeService := &computeservice.GCPComputeServiceMock{
+		MockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			return &compute.Operation{Status: "DONE"}, nil
+		},
+	}
+	// Use a closure to return our dual stack instance
+	mockComputeService.SetMockInstancesGet(func(project string, z string, instance string) (*compute.Instance, error) {
+		return dualStackInstance, nil
+	})
+
+	machineScope := machineScope{
+		machine: &machinev1.Machine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      instanceName,
+				Namespace: "",
+			},
+		},
+		coreClient: controllerfake.NewFakeClient(),
+		providerSpec: &machinev1.GCPMachineProviderSpec{
+			Disks: []*machinev1.GCPDisk{
+				{
+					Boot:  true,
+					Image: "projects/fooproject/global/images/uefi-image",
+				},
+			},
+			Zone: zone,
+		},
+		projectID:      projecID,
+		providerID:     fmt.Sprintf("gce://%s/%s/%s", projecID, zone, instanceName),
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
+		computeService: mockComputeService,
+	}
+
+	expectedNodeAddresses := []corev1.NodeAddress{
+		{
+			Type:    "InternalIP",
+			Address: "10.0.0.15",
+		},
+		{
+			Type:    "ExternalIP",
+			Address: "35.243.147.143",
+		},
+		{
+			Type:    "InternalIP",
+			Address: "2600:1900:4000:318::",
+		},
+		{
+			Type:    "ExternalIP",
+			Address: "2600:1900:4000:318::1",
+		},
+	}
+
+	r := newReconciler(&machineScope)
+	if err := r.reconcileMachineWithCloudState(nil); err != nil {
+		t.Errorf("reconciler was not expected to return error: %v", err)
+	}
+
+	// Verify all expected addresses are present
+	if len(r.machine.Status.Addresses) < 4 {
+		t.Errorf("Expected at least 4 addresses (IPv4 internal, IPv4 external, IPv6 internal, IPv6 external), got %d", len(r.machine.Status.Addresses))
+	}
+
+	// Check that all expected addresses are present (order may vary due to DNS addresses)
+	for _, expected := range expectedNodeAddresses {
+		found := false
+		for _, actual := range r.machine.Status.Addresses {
+			if actual.Type == expected.Type && actual.Address == expected.Address {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected address %v not found in actual addresses: %v", expected, r.machine.Status.Addresses)
+		}
 	}
 
 	if r.providerID != *r.machine.Spec.ProviderID {

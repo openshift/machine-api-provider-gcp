@@ -353,12 +353,56 @@ func (r *Reconciler) create() error {
 	var networkInterfaces = []*compute.NetworkInterface{}
 
 	for _, nic := range r.providerSpec.NetworkInterfaces {
+		// Configure IPv4 access
 		accessConfigs := []*compute.AccessConfig{}
 		if nic.PublicIP {
 			accessConfigs = append(accessConfigs, &compute.AccessConfig{})
 		}
+
+		// Configure IPv6 access for dual stack
+		ipv6AccessConfigs := []*compute.AccessConfig{}
+		stackType := string(nic.StackType)
+		if stackType == "" {
+			// Default to IPv4 only for backward compatibility
+			stackType = string(machinev1.IPv4OnlyStackType)
+		}
+
+		// Configure the GCP stack type based on our API
+		var gcpStackType string
+		switch machinev1.StackType(stackType) {
+		case machinev1.IPv4OnlyStackType:
+			gcpStackType = "IPV4_ONLY"
+		case machinev1.DualStackStackType:
+			gcpStackType = "IPV4_IPV6"
+		default:
+			gcpStackType = "IPV4_ONLY"
+		}
+
+		// Determine IPv6 access type with default applied
+		ipv6AccessType := nic.IPv6AccessType
+		if nic.StackType == machinev1.DualStackStackType && ipv6AccessType == "" {
+			// Default to External for dual stack as documented in the API
+			ipv6AccessType = machinev1.ExternalIPv6AccessType
+		}
+
+		// Add IPv6 external access if configured for dual stack
+		if nic.StackType == machinev1.DualStackStackType &&
+			ipv6AccessType == machinev1.ExternalIPv6AccessType {
+			ipv6AccessConfigs = append(ipv6AccessConfigs, &compute.AccessConfig{
+				Name: "External IPv6",
+				Type: "DIRECT_IPV6",
+			})
+		}
+
 		computeNIC := &compute.NetworkInterface{
-			AccessConfigs: accessConfigs,
+			AccessConfigs:     accessConfigs,
+			Ipv6AccessConfigs: ipv6AccessConfigs,
+			StackType:         gcpStackType,
+		}
+
+		// Set static IPv6 address if provided
+		if nic.IPv6Address != "" {
+			computeNIC.Ipv6Address = nic.IPv6Address
 		}
 		projectID := nic.ProjectID
 		if projectID == "" {
@@ -486,9 +530,30 @@ func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *metav1.Cond
 		}
 		networkInterface := freshInstance.NetworkInterfaces[0]
 
-		nodeAddresses := []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: networkInterface.NetworkIP}}
+		nodeAddresses := []corev1.NodeAddress{}
+
+		// Add IPv4 internal IP if present
+		if networkInterface.NetworkIP != "" {
+			nodeAddresses = append(nodeAddresses, corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: networkInterface.NetworkIP})
+		}
+
+		// Add IPv4 external IPs from access configs
 		for _, config := range networkInterface.AccessConfigs {
-			nodeAddresses = append(nodeAddresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: config.NatIP})
+			if config.NatIP != "" {
+				nodeAddresses = append(nodeAddresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: config.NatIP})
+			}
+		}
+
+		// Add IPv6 internal IP if present
+		if networkInterface.Ipv6Address != "" {
+			nodeAddresses = append(nodeAddresses, corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: networkInterface.Ipv6Address})
+		}
+
+		// Add IPv6 external IPs from IPv6 access configs
+		for _, config := range networkInterface.Ipv6AccessConfigs {
+			if config.ExternalIpv6 != "" {
+				nodeAddresses = append(nodeAddresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: config.ExternalIpv6})
+			}
 		}
 		// Since we don't know when the project was created, we must account for
 		// both types of internal-dns:
@@ -607,6 +672,43 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 
 	if providerSpec.Preemptible && providerSpec.ProvisioningModel != nil && *providerSpec.ProvisioningModel == machinev1.GCPSpotInstance {
 		return machinecontroller.InvalidMachineConfiguration("preemptible cannot be used together with 'Spot' provisioning model")
+	}
+
+	// Validate dual stack network configuration
+	for i, nic := range providerSpec.NetworkInterfaces {
+		if nic == nil {
+			continue
+		}
+
+		stackType := nic.StackType
+		// Empty stack type defaults to IPv4Only, which is valid
+		if stackType == "" {
+			stackType = machinev1.IPv4OnlyStackType
+		}
+
+		// Validate stack type is a known value
+		if stackType != machinev1.IPv4OnlyStackType && stackType != machinev1.DualStackStackType {
+			return machinecontroller.InvalidMachineConfiguration("network interface %d has invalid stackType %q, valid values are: IPv4Only, DualStack", i, stackType)
+		}
+
+		// Validate IPv6AccessType
+		if nic.IPv6AccessType != "" {
+			// IPv6AccessType should only be set for dual stack configurations
+			if stackType != machinev1.DualStackStackType {
+				return machinecontroller.InvalidMachineConfiguration("network interface %d has ipv6AccessType set but stackType is %q (must be DualStack)", i, stackType)
+			}
+
+			// Validate IPv6AccessType value
+			if nic.IPv6AccessType != machinev1.ExternalIPv6AccessType && nic.IPv6AccessType != machinev1.InternalIPv6AccessType {
+				return machinecontroller.InvalidMachineConfiguration("network interface %d has invalid ipv6AccessType %q, valid values are: External, Internal", i, nic.IPv6AccessType)
+			}
+		}
+		// Note: empty IPv6AccessType defaults to External for DualStack, which is valid
+
+		// Validate IPv6Address is only set for dual stack configurations
+		if nic.IPv6Address != "" && stackType != machinev1.DualStackStackType {
+			return machinecontroller.InvalidMachineConfiguration("network interface %d has ipv6Address set but stackType is %q (must be DualStack)", i, stackType)
+		}
 	}
 
 	return nil
