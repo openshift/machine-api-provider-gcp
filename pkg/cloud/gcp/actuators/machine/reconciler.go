@@ -420,8 +420,27 @@ func (r *Reconciler) create() error {
 		Items: metadataItems,
 	}
 
-	_, err = r.computeService.InstancesInsert(r.projectID, zone, instance)
+	if existingOp, err := r.latestVisibleInsertOperation(); err == nil && existingOp != nil {
+		if existingOp.Status != "DONE" {
+			klog.Infof("%s: insert operation still in progress, requeuing", r.machine.Name)
+			return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+		}
+		if err := operationError(existingOp); err != nil {
+			klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, existingOp.Error.Errors)
+			r.recordFailedInstanceCreate(err)
+			return fmt.Errorf("failed to create instance via compute service: %v", err)
+		}
+	} else if err != nil {
+		klog.Warningf("%s: failed to determine insert operation: %v", r.machine.Name, err)
+	}
+
+	insertOp, err := r.computeService.InstancesInsert(r.projectID, zone, instance)
 	if err != nil {
+		var googleError *googleapi.Error
+		if errors.As(err, &googleError) && googleError.Code == 409 {
+			klog.Infof("%s: instance create returned conflict, requeuing", r.machine.Name)
+			return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+		}
 		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
 			Name:      r.machine.Name,
 			Namespace: r.machine.Namespace,
@@ -443,6 +462,10 @@ func (r *Reconciler) create() error {
 				return machinecontroller.InvalidMachineConfiguration("error launching instance: %v", googleError.Error())
 			}
 		}
+		return fmt.Errorf("failed to create instance via compute service: %v", err)
+	}
+	if err := operationError(insertOp); err != nil {
+		r.recordFailedInstanceCreate(err)
 		return fmt.Errorf("failed to create instance via compute service: %v", err)
 	}
 	return r.reconcileMachineWithCloudState(nil)
@@ -478,6 +501,9 @@ func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *metav1.Cond
 	} else {
 		freshInstance, err := r.computeService.InstancesGet(r.projectID, r.providerSpec.Zone, r.machine.Name)
 		if err != nil {
+			if isNotFoundError(err) {
+				return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+			}
 			return fmt.Errorf("failed to get instance via compute service: %v", err)
 		}
 
@@ -692,12 +718,57 @@ func (r *Reconciler) delete() error {
 	return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 }
 
-func isNotFoundError(err error) bool {
-	switch t := err.(type) {
-	case *googleapi.Error:
-		return t.Code == 404
+func (r *Reconciler) latestVisibleInsertOperation() (*compute.Operation, error) {
+	targetLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	filter := fmt.Sprintf(`targetLink="%s" AND operationType="insert"`, targetLink)
+	opList, err := r.computeService.ZoneOperationsList(r.projectID, r.providerSpec.Zone, filter, "creationTimestamp desc")
+	if err != nil {
+		return nil, err
 	}
-	return false
+	if opList == nil || len(opList.Items) == 0 {
+		return nil, nil
+	}
+	return opList.Items[0], nil
+}
+
+// operationError returns an error if a GCP Operation carried a failure, surfacing
+// the specific error codes (e.g. ZONE_RESOURCE_POOL_EXHAUSTED) that would otherwise
+// be invisible when the HTTP request itself succeeded. Returns nil if op has no errors.
+func operationError(op *compute.Operation) error {
+	if op == nil || op.Error == nil || len(op.Error.Errors) == 0 {
+		return nil
+	}
+	msgs := make([]string, 0, len(op.Error.Errors))
+	for _, e := range op.Error.Errors {
+		if e.Message != "" {
+			msgs = append(msgs, e.Code+": "+e.Message)
+		} else {
+			msgs = append(msgs, e.Code)
+		}
+	}
+	return fmt.Errorf("GCP operation failed: %s", strings.Join(msgs, "; "))
+}
+
+func (r *Reconciler) recordFailedInstanceCreate(err error) {
+	failedCondition := metav1.Condition{
+		Type:    string(machinev1.MachineCreated),
+		Reason:  machineCreationFailedReason,
+		Message: err.Error(),
+		Status:  metav1.ConditionFalse,
+	}
+	if currentCondition := findCondition(r.providerStatus.Conditions, failedCondition.Type); currentCondition == nil || shouldUpdateCondition(*currentCondition, failedCondition) {
+		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
+			Name:      r.machine.Name,
+			Namespace: r.machine.Namespace,
+			Reason:    "failed to create instance via compute service",
+		})
+	}
+	r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, failedCondition)
+}
+
+func isNotFoundError(err error) bool {
+	var googleError *googleapi.Error
+	return errors.As(err, &googleError) && googleError.Code == 404
 }
 
 func isProjectNotFoundError(err error, projectID string) bool {

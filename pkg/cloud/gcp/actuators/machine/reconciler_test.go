@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/googleapis/gax-go/v2/apierror"
 	configv1 "github.com/openshift/api/config/v1"
@@ -34,6 +35,8 @@ func TestCreate(t *testing.T) {
 		secret                            *corev1.Secret
 		mockGPUCompatibleMachineTypesList func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string)
 		mockInstancesInsert               func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
+		mockInstancesGet                  func(project string, zone string, instance string) (*compute.Instance, error)
+		mockZoneOperationsList            func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error)
 		mockRegionGet                     func(project string, region string) (*compute.Region, error)
 		validateInstance                  func(t *testing.T, instance *compute.Instance)
 		expectedError                     error
@@ -109,6 +112,119 @@ func TestCreate(t *testing.T) {
 			},
 			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
 				return nil, &googleapi.Error{Message: "error", Code: 400}
+			},
+		},
+		{
+			name:          "Fail on ZONE_RESOURCE_POOL_EXHAUSTED async operation error",
+			expectedError: errors.New("failed to create instance via compute service: GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request."),
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionFalse,
+				Reason:  machineCreationFailedReason,
+				Message: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+			},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{
+					Status: "DONE",
+					Error: &compute.OperationError{
+						Errors: []*compute.OperationErrorErrors{
+							{
+								Code:    "ZONE_RESOURCE_POOL_EXHAUSTED",
+								Message: "The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+							},
+						},
+					},
+				}, nil
+			},
+		},
+		{
+			name:          "Requeue when returned operation is still RUNNING",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "running-op", Status: "RUNNING"}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404}
+			},
+		},
+		{
+			name:          "Requeue when returned operation is not visible yet",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "new-op", Status: "RUNNING"}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404}
+			},
+		},
+		{
+			name:          "Requeue when wrapped not found is returned while insert operation is still pending",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "wrapped-404-op", Status: "RUNNING"}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, fmt.Errorf("wrapped not found: %w", &googleapi.Error{Code: 404})
+			},
+		},
+		{
+			name:          "Requeue when insert operation is still RUNNING",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				t.Fatalf("InstancesInsert should not be called when insert operation is still running")
+				return nil, nil
+			},
+			mockZoneOperationsList: func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+				return &compute.OperationList{
+					Items: []*compute.Operation{
+						{Status: "RUNNING"},
+					},
+				}, nil
+			},
+		},
+		{
+			name:          "Fail when insert operation completed with async error",
+			expectedError: errors.New("failed to create instance via compute service: GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request."),
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionFalse,
+				Reason:  machineCreationFailedReason,
+				Message: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+			},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				t.Fatalf("InstancesInsert should not be called when insert operation has already failed")
+				return nil, nil
+			},
+			mockZoneOperationsList: func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+				return &compute.OperationList{
+					Items: []*compute.Operation{
+						{
+							Status: "DONE",
+							Error: &compute.OperationError{
+								Errors: []*compute.OperationErrorErrors{
+									{
+										Code:    "ZONE_RESOURCE_POOL_EXHAUSTED",
+										Message: "The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+		},
+		{
+			name:          "Requeue on instance create conflict",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return nil, &googleapi.Error{Code: 409, Message: "already exists"}
+			},
+		},
+		{
+			name:          "Requeue on wrapped instance create conflict",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return nil, fmt.Errorf("wrapped conflict: %w", &googleapi.Error{Code: 409, Message: "already exists"})
 			},
 		},
 		{
@@ -975,6 +1091,14 @@ func TestCreate(t *testing.T) {
 				mockComputeService.MockInstancesInsert = tc.mockInstancesInsert
 			}
 
+			if tc.mockInstancesGet != nil {
+				mockComputeService.MockInstancesGet = tc.mockInstancesGet
+			}
+
+			if tc.mockZoneOperationsList != nil {
+				mockComputeService.MockZoneOperationsList = tc.mockZoneOperationsList
+			}
+
 			if tc.mockGPUCompatibleMachineTypesList != nil {
 				mockComputeService.MockGPUCompatibleMachineTypesList = tc.mockGPUCompatibleMachineTypesList
 			}
@@ -1792,5 +1916,83 @@ func TestEnsureCorrectNetworkAndSubnetName(t *testing.T) {
 		if actualNetworkName != tc.expectedNetworkName || actualSubnetworkName != tc.expectedSubnetworkName {
 			t.Errorf("Expected NetworkName: %s, got: %s\nExpected SubnetworkName: %s, got: %s", tc.expectedNetworkName, actualNetworkName, tc.expectedSubnetworkName, actualSubnetworkName)
 		}
+	}
+}
+
+func TestOperationError(t *testing.T) {
+	cases := []struct {
+		name        string
+		op          *compute.Operation
+		expectedErr string
+	}{
+		{
+			name:        "nil operation",
+			op:          nil,
+			expectedErr: "",
+		},
+		{
+			name:        "operation with no errors",
+			op:          &compute.Operation{Status: "DONE"},
+			expectedErr: "",
+		},
+		{
+			name: "ZONE_RESOURCE_POOL_EXHAUSTED",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{
+						{
+							Code:    "ZONE_RESOURCE_POOL_EXHAUSTED",
+							Message: "The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+						},
+					},
+				},
+			},
+			expectedErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+		},
+		{
+			name: "code only, no message",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{
+						{Code: "QUOTA_EXCEEDED"},
+					},
+				},
+			},
+			expectedErr: "GCP operation failed: QUOTA_EXCEEDED",
+		},
+		{
+			name: "multiple errors",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{
+						{Code: "ZONE_RESOURCE_POOL_EXHAUSTED", Message: "no resources"},
+						{Code: "QUOTA_EXCEEDED", Message: "quota hit"},
+					},
+				},
+			},
+			expectedErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources; QUOTA_EXCEEDED: quota hit",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := operationError(tc.op)
+			if tc.expectedErr == "" {
+				if err != nil {
+					t.Errorf("expected nil error, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Errorf("expected error %q, got nil", tc.expectedErr)
+				return
+			}
+			if err.Error() != tc.expectedErr {
+				t.Errorf("expected error:\n  %q\ngot:\n  %q", tc.expectedErr, err.Error())
+			}
+		})
 	}
 }

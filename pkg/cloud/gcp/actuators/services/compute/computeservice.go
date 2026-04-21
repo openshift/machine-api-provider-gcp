@@ -20,6 +20,7 @@ type GCPComputeService interface {
 	InstancesGet(project string, zone string, instance string) (*compute.Instance, error)
 	ZonesGet(project string, zone string) (*compute.Zone, error)
 	ZoneOperationsGet(project string, zone string, operation string) (*compute.Operation, error)
+	ZoneOperationsList(project string, zone string, filter string, orderBy string) (*compute.OperationList, error)
 	BasePath() string
 	TargetPoolsGet(project string, region string, name string) (*compute.TargetPool, error)
 	TargetPoolsAddInstance(project string, region string, name string, instance string) (*compute.Operation, error)
@@ -74,6 +75,15 @@ func (c *computeService) InstancesInsert(project string, zone string, instance *
 // ZoneOperationsGet is a pass through wrapper for compute.Service.ZoneOperations.Get(...)
 func (c *computeService) ZoneOperationsGet(project string, zone string, operation string) (*compute.Operation, error) {
 	return c.service.ZoneOperations.Get(project, zone, operation).Do()
+}
+
+// ZoneOperationsList is a pass through wrapper for compute.Service.ZoneOperations.List(...)
+func (c *computeService) ZoneOperationsList(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+	call := c.service.ZoneOperations.List(project, zone).Filter(filter)
+	if orderBy != "" {
+		call = call.OrderBy(orderBy)
+	}
+	return call.Do()
 }
 
 func (c *computeService) InstancesGet(project string, zone string, instance string) (*compute.Instance, error) {
