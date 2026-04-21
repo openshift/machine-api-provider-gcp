@@ -419,22 +419,28 @@ func (r *Reconciler) create() error {
 		Items: metadataItems,
 	}
 
-	_, err = r.computeService.InstancesInsert(r.projectID, zone, instance)
+	shouldInsert, err := r.reconcilePriorInsertAttempt()
 	if err != nil {
-		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
-			Name:      r.machine.Name,
-			Namespace: r.machine.Namespace,
-			Reason:    "failed to create instance via compute service",
-		})
-		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&metav1.Condition{
-			Type:    string(machinev1.MachineCreated),
-			Reason:  machineCreationFailedReason,
-			Message: err.Error(),
-			Status:  metav1.ConditionFalse,
-		}); reconcileWithCloudError != nil {
-			klog.Errorf("Failed to reconcile machine with cloud state: %v", reconcileWithCloudError)
+		return err
+	}
+	if !shouldInsert {
+		// Already inserting or already reconciled.
+		return nil
+	}
+
+	insertOperation, err := r.computeService.InstancesInsert(r.projectID, zone, instance)
+	if err != nil {
+		var googleError *googleapi.Error
+		if errors.As(err, &googleError) && googleError.Code == 409 {
+			// 409 usually means the instance exists or another insert is racing.
+			klog.Infof("%s: instance create returned conflict, reconciling", r.machine.Name)
+			return r.reconcileAfterCreate()
 		}
-		if googleError, ok := err.(*googleapi.Error); ok {
+		if isCapacityAPIError(err) {
+			return r.requeueCapacityOnCreate(err)
+		}
+		r.recordFailedInstanceCreate(err)
+		if errors.As(err, &googleError) {
 			// we return InvalidMachineConfiguration for 4xx errors which by convention signal client misconfiguration
 			// https://tools.ietf.org/html/rfc2616#section-6.1.1
 			if strings.HasPrefix(strconv.Itoa(googleError.Code), "4") {
@@ -442,9 +448,61 @@ func (r *Reconciler) create() error {
 				return machinecontroller.InvalidMachineConfiguration("error launching instance: %v", googleError.Error())
 			}
 		}
-		return fmt.Errorf("failed to create instance via compute service: %v", err)
+		return fmt.Errorf("failed to create instance via compute service: %w", err)
 	}
-	return r.reconcileMachineWithCloudState(nil)
+	class, operationErr := classifyInsertOperation(insertOperation)
+	switch class {
+	case insertOperationCapacityFailed:
+		klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, operationErr)
+		return r.requeueCapacityOnCreate(operationErr)
+	case insertOperationTerminalFailed:
+		klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, operationErr)
+		r.recordFailedInstanceCreate(operationErr)
+		return machinecontroller.InvalidMachineConfiguration("error launching instance: %v", operationErr)
+	}
+	return r.reconcileAfterCreate()
+}
+
+// Look at the last insert op before calling InstancesInsert again.
+func (r *Reconciler) reconcilePriorInsertAttempt() (shouldInsert bool, err error) {
+	existingOp, listErr := r.latestVisibleInsertOperation()
+	if listErr != nil {
+		klog.Warningf("%s: failed to determine insert operation: %v", r.machine.Name, listErr)
+		return false, &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+	}
+	class, operationErr := classifyInsertOperation(existingOp)
+	switch class {
+	case insertOperationAbsent:
+		if capErr, ok := r.capacityErrorFromCondition(); ok {
+			if waitErr := r.createCapacityMayInsert(capErr); waitErr != nil {
+				return false, waitErr
+			}
+		}
+		return true, nil
+	case insertOperationInFlight:
+		klog.Infof("%s: insert operation still in progress, requeuing", r.machine.Name)
+		return false, &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+	case insertOperationCapacityFailed:
+		klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, operationErr)
+		if waitErr := r.createCapacityMayInsert(operationErr); waitErr != nil {
+			return false, waitErr
+		}
+		klog.Infof("%s: retrying instance create after capacity error", r.machine.Name)
+		return true, nil
+	case insertOperationTerminalFailed:
+		klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, operationErr)
+		r.recordFailedInstanceCreate(operationErr)
+		return false, machinecontroller.InvalidMachineConfiguration("error launching instance: %v", operationErr)
+	case insertOperationSucceeded:
+		klog.Infof("%s: prior insert operation succeeded, reconciling instance state", r.machine.Name)
+		recErr := r.reconcileOnUpdate()
+		if recErr != nil && isNotFoundError(recErr) {
+			klog.Infof("%s: prior insert operation succeeded but instance not found, retrying create", r.machine.Name)
+			return true, nil
+		}
+		return false, recErr
+	}
+	return true, nil
 }
 
 func (r *Reconciler) update() error {
@@ -463,72 +521,95 @@ func (r *Reconciler) update() error {
 			return fmt.Errorf("failed to register instance to instance group: %v", err)
 		}
 	}
-	return r.reconcileMachineWithCloudState(nil)
+	return r.reconcileOnUpdate()
 }
 
-// reconcileMachineWithCloudState reconcile machineSpec and status with the latest cloud state
-// if a failedCondition is passed it updates the providerStatus.Conditions and return
-// otherwise it fetches the relevant cloud instance and reconcile the rest of the fields
-func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *metav1.Condition) error {
+func (r *Reconciler) reconcileAfterCreate() error {
+	return r.reconcileWithCloudState(true)
+}
+
+func (r *Reconciler) reconcileOnUpdate() error {
+	return r.reconcileWithCloudState(false)
+}
+
+// Copy instance fields onto the Machine. Wait for RUNNING before setting providerID.
+func (r *Reconciler) reconcileWithCloudState(requeueOnNotFound bool) error {
 	klog.Infof("%s: Reconciling machine object with cloud state", r.machine.Name)
-	if failedCondition != nil {
-		r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, *failedCondition)
-		return nil
-	} else {
-		freshInstance, err := r.computeService.InstancesGet(r.projectID, r.providerSpec.Zone, r.machine.Name)
-		if err != nil {
-			return fmt.Errorf("failed to get instance via compute service: %v", err)
-		}
 
-		if len(freshInstance.NetworkInterfaces) < 1 {
-			return fmt.Errorf("could not find network interfaces for instance %q", freshInstance.Name)
-		}
-		networkInterface := freshInstance.NetworkInterfaces[0]
-
-		nodeAddresses := []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: networkInterface.NetworkIP}}
-		for _, config := range networkInterface.AccessConfigs {
-			nodeAddresses = append(nodeAddresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: config.NatIP})
-		}
-		// Since we don't know when the project was created, we must account for
-		// both types of internal-dns:
-		// https://cloud.google.com/compute/docs/internal-dns#instance-fully-qualified-domain-names
-		// [INSTANCE_NAME].[ZONE].c.[PROJECT_ID].internal (newer)
-		nodeAddresses = append(nodeAddresses, corev1.NodeAddress{
-			Type:    corev1.NodeInternalDNS,
-			Address: fmt.Sprintf("%s.%s.c.%s.internal", r.machine.Name, r.providerSpec.Zone, r.projectID),
-		})
-		// [INSTANCE_NAME].c.[PROJECT_ID].internal
-		nodeAddresses = append(nodeAddresses, corev1.NodeAddress{
-			Type:    corev1.NodeInternalDNS,
-			Address: fmt.Sprintf("%s.c.%s.internal", r.machine.Name, r.projectID),
-		})
-		// Add the machine's name as a known NodeInternalDNS because GCP platform
-		// provides search paths to resolve those.
-		// https://cloud.google.com/compute/docs/internal-dns#resolv.conf
-		nodeAddresses = append(nodeAddresses, corev1.NodeAddress{
-			Type:    corev1.NodeInternalDNS,
-			Address: r.machine.GetName(),
-		})
-
-		r.machine.Spec.ProviderID = &r.providerID
-		r.machine.Status.Addresses = nodeAddresses
-		r.providerStatus.InstanceState = &freshInstance.Status
-		r.providerStatus.InstanceID = &freshInstance.Name
-		succeedCondition := metav1.Condition{
-			Type:    string(machinev1.MachineCreated),
-			Reason:  machineCreationSucceedReason,
-			Message: machineCreationSucceedMessage,
-			Status:  metav1.ConditionTrue,
-		}
-		r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, succeedCondition)
-
-		r.setMachineCloudProviderSpecifics(freshInstance)
-
-		if freshInstance.Status != "RUNNING" {
-			klog.Infof("%s: machine status is %q, requeuing...", r.machine.Name, freshInstance.Status)
+	freshInstance, err := r.computeService.InstancesGet(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	if err != nil {
+		if isNotFoundError(err) && requeueOnNotFound {
 			return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 		}
+		return fmt.Errorf("failed to get instance via compute service: %w", err)
 	}
+
+	r.providerStatus.InstanceState = &freshInstance.Status
+	r.providerStatus.InstanceID = &freshInstance.Name
+	r.setMachineCloudProviderSpecifics(freshInstance)
+
+	if freshInstance.Status != "RUNNING" {
+		insertOperation, opListErr := r.latestVisibleInsertOperation()
+		if opListErr != nil {
+			klog.Warningf("%s: failed to determine insert operation while reconciling: %v", r.machine.Name, opListErr)
+			return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+		}
+		class, operationErr := classifyInsertOperation(insertOperation)
+		switch class {
+		case insertOperationInFlight:
+			klog.Infof("%s: insert operation still in progress (instance %q), waiting for RUNNING", r.machine.Name, freshInstance.Status)
+			return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+		case insertOperationCapacityFailed:
+			klog.Errorf("%s: insert operation failed with capacity error while instance visible: %v", r.machine.Name, operationErr)
+			return r.requeueCapacityOnUpdate(operationErr)
+		case insertOperationTerminalFailed:
+			// MAO ignores InvalidMachineConfiguration on Update.
+			klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, operationErr)
+			r.recordFailedInstanceCreate(operationErr)
+			return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+		}
+		klog.Infof("%s: machine status is %q, waiting for RUNNING", r.machine.Name, freshInstance.Status)
+		return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+	}
+	if len(freshInstance.NetworkInterfaces) < 1 {
+		return fmt.Errorf("could not find network interfaces for instance %q", freshInstance.Name)
+	}
+	networkInterface := freshInstance.NetworkInterfaces[0]
+
+	nodeAddresses := []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: networkInterface.NetworkIP}}
+	for _, config := range networkInterface.AccessConfigs {
+		nodeAddresses = append(nodeAddresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: config.NatIP})
+	}
+	// Since we don't know when the project was created, we must account for
+	// both types of internal-dns:
+	// https://cloud.google.com/compute/docs/internal-dns#instance-fully-qualified-domain-names
+	// [INSTANCE_NAME].[ZONE].c.[PROJECT_ID].internal (newer)
+	nodeAddresses = append(nodeAddresses, corev1.NodeAddress{
+		Type:    corev1.NodeInternalDNS,
+		Address: fmt.Sprintf("%s.%s.c.%s.internal", r.machine.Name, r.providerSpec.Zone, r.projectID),
+	})
+	// [INSTANCE_NAME].c.[PROJECT_ID].internal
+	nodeAddresses = append(nodeAddresses, corev1.NodeAddress{
+		Type:    corev1.NodeInternalDNS,
+		Address: fmt.Sprintf("%s.c.%s.internal", r.machine.Name, r.projectID),
+	})
+	// Add the machine's name as a known NodeInternalDNS because GCP platform
+	// provides search paths to resolve those.
+	// https://cloud.google.com/compute/docs/internal-dns#resolv.conf
+	nodeAddresses = append(nodeAddresses, corev1.NodeAddress{
+		Type:    corev1.NodeInternalDNS,
+		Address: r.machine.GetName(),
+	})
+
+	r.machine.Spec.ProviderID = &r.providerID
+	r.machine.Status.Addresses = nodeAddresses
+	succeedCondition := metav1.Condition{
+		Type:    string(machinev1.MachineCreated),
+		Reason:  machineCreationSucceedReason,
+		Message: machineCreationSucceedMessage,
+		Status:  metav1.ConditionTrue,
+	}
+	r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, succeedCondition)
 
 	return nil
 }
@@ -691,12 +772,26 @@ func (r *Reconciler) delete() error {
 	return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 }
 
-func isNotFoundError(err error) bool {
-	switch t := err.(type) {
-	case *googleapi.Error:
-		return t.Code == 404
+func (r *Reconciler) recordFailedInstanceCreate(err error) {
+	failedCondition := metav1.Condition{
+		Type:    string(machinev1.MachineCreated),
+		Reason:  machineCreationFailedReason,
+		Message: err.Error(),
+		Status:  metav1.ConditionFalse,
 	}
-	return false
+	if currentCondition := findCondition(r.providerStatus.Conditions, failedCondition.Type); currentCondition == nil || shouldUpdateCondition(*currentCondition, failedCondition) {
+		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
+			Name:      r.machine.Name,
+			Namespace: r.machine.Namespace,
+			Reason:    "failed to create instance via compute service",
+		})
+	}
+	r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, failedCondition)
+}
+
+func isNotFoundError(err error) bool {
+	var googleError *googleapi.Error
+	return errors.As(err, &googleError) && googleError.Code == 404
 }
 
 func isProjectNotFoundError(err error, projectID string) bool {
