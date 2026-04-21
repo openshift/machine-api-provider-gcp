@@ -32,8 +32,8 @@ type GCPComputeServiceMock struct {
 	MockInstancesInsert               func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
 	MockMachineTypesGet               func(project string, zone string, machineType string) (*compute.MachineType, error)
 	MockRegionGet                     func(project string, region string) (*compute.Region, error)
-	mockZoneOperationsGet             func(project string, zone string, operation string) (*compute.Operation, error)
-	mockInstancesGet                  func(project string, zone string, instance string) (*compute.Instance, error)
+	MockZoneOperationsList            func(project string, zone string, filter string) (*compute.OperationList, error)
+	MockInstancesGet                  func(project string, zone string, instance string) (*compute.Instance, error)
 }
 
 func (c *GCPComputeServiceMock) InstancesInsert(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
@@ -49,15 +49,15 @@ func (c *GCPComputeServiceMock) InstancesDelete(requestId string, project string
 	}, nil
 }
 
-func (c *GCPComputeServiceMock) ZoneOperationsGet(project string, zone string, operation string) (*compute.Operation, error) {
-	if c.mockZoneOperationsGet == nil {
-		return nil, nil
+func (c *GCPComputeServiceMock) ZoneOperationsList(project string, zone string, filter string) (*compute.OperationList, error) {
+	if c.MockZoneOperationsList == nil {
+		return &compute.OperationList{}, nil
 	}
-	return c.mockZoneOperationsGet(project, zone, operation)
+	return c.MockZoneOperationsList(project, zone, filter)
 }
 
 func (c *GCPComputeServiceMock) InstancesGet(project string, zone string, instance string) (*compute.Instance, error) {
-	if c.mockInstancesGet == nil {
+	if c.MockInstancesGet == nil {
 		return &compute.Instance{
 			Name:         instance,
 			Zone:         zone,
@@ -76,7 +76,7 @@ func (c *GCPComputeServiceMock) InstancesGet(project string, zone string, instan
 			Status: "RUNNING",
 		}, nil
 	}
-	return c.mockInstancesGet(project, zone, instance)
+	return c.MockInstancesGet(project, zone, instance)
 }
 
 func (c *GCPComputeServiceMock) ZonesGet(project string, zone string) (*compute.Zone, error) {
@@ -125,11 +125,6 @@ func NewComputeServiceMock() (*compute.Instance, *GCPComputeServiceMock) {
 				Status: "DONE",
 			}, nil
 		},
-		mockZoneOperationsGet: func(project string, zone string, operation string) (*compute.Operation, error) {
-			return &compute.Operation{
-				Status: "DONE",
-			}, nil
-		},
 	}
 	return &receivedInstance, &computeServiceMock
 }
@@ -141,7 +136,7 @@ func MockBuilderFuncType(serviceAccountJSON string) (GCPComputeService, error) {
 
 func MockBuilderFuncTypeNotFound(serviceAccountJSON string) (GCPComputeService, error) {
 	_, computeSvc := NewComputeServiceMock()
-	computeSvc.mockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+	computeSvc.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
 		return nil, &googleapi.Error{
 			Code: 404,
 		}
