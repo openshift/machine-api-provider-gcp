@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/googleapis/gax-go/v2/apierror"
 	configv1 "github.com/openshift/api/config/v1"
@@ -25,7 +26,52 @@ import (
 	controllerfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+const testZoneResourcePoolExhaustedMessage = "The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request."
+
+// testInstanceSelfLink matches Reconciler.fmtInstanceSelfLink with the mock
+// compute BasePath (www.googleapis.com) so ZoneOperationsList mocks pass path matching.
+func testInstanceSelfLink(project, zone, name string) string {
+	return fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/%s/instances/%s", project, zone, name)
+}
+
+func testCreateInstanceSelfLink() string {
+	return testInstanceSelfLink("", "", "")
+}
+
+func zoneResourcePoolExhaustedOperation(message string) *compute.Operation {
+	return &compute.Operation{
+		Status: "DONE",
+		Error: &compute.OperationError{
+			Errors: []*compute.OperationErrorErrors{
+				{
+					Code:    "ZONE_RESOURCE_POOL_EXHAUSTED",
+					Message: message,
+				},
+			},
+		},
+	}
+}
+
+func withTargetLink(op *compute.Operation, targetLink string) *compute.Operation {
+	op.TargetLink = targetLink
+	return op
+}
+
+func mustOperationError(t *testing.T, op *compute.Operation) error {
+	t.Helper()
+
+	err := operationError(op)
+	if err == nil {
+		t.Fatalf("expected operation error for operation %#v", op)
+	}
+
+	return err
+}
+
 func TestCreate(t *testing.T) {
+	asyncFailureOp := zoneResourcePoolExhaustedOperation(testZoneResourcePoolExhaustedMessage)
+	asyncFailureErr := mustOperationError(t, asyncFailureOp)
+
 	cases := []struct {
 		name                              string
 		labels                            map[string]string
@@ -34,6 +80,8 @@ func TestCreate(t *testing.T) {
 		secret                            *corev1.Secret
 		mockGPUCompatibleMachineTypesList func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string)
 		mockInstancesInsert               func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
+		mockInstancesGet                  func(project string, zone string, instance string) (*compute.Instance, error)
+		mockZoneOperationsList            func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error)
 		mockRegionGet                     func(project string, region string) (*compute.Region, error)
 		validateInstance                  func(t *testing.T, instance *compute.Instance)
 		expectedError                     error
@@ -109,6 +157,160 @@ func TestCreate(t *testing.T) {
 			},
 			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
 				return nil, &googleapi.Error{Message: "error", Code: 400}
+			},
+		},
+		{
+			name:          "Fail on ZONE_RESOURCE_POOL_EXHAUSTED async operation error",
+			expectedError: fmt.Errorf("failed to create instance via compute service: %v", asyncFailureErr),
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionFalse,
+				Reason:  machineCreationFailedReason,
+				Message: asyncFailureErr.Error(),
+			},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return asyncFailureOp, nil
+			},
+		},
+		{
+			name:          "Requeue when returned operation is still RUNNING",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "running-op", Status: "RUNNING"}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404}
+			},
+		},
+		{
+			name:          "Requeue when returned operation is not visible yet",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "new-op", Status: "RUNNING"}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404}
+			},
+		},
+		{
+			name:          "Requeue when wrapped not found is returned while insert operation is still pending",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "wrapped-404-op", Status: "RUNNING"}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, fmt.Errorf("wrapped not found: %w", &googleapi.Error{Code: 404})
+			},
+		},
+		{
+			name:          "Requeue when insert operation is still RUNNING",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				t.Fatalf("InstancesInsert should not be called when insert operation is still running")
+				return nil, nil
+			},
+			mockZoneOperationsList: func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+				return &compute.OperationList{
+					Items: []*compute.Operation{
+						{Status: "RUNNING", TargetLink: testCreateInstanceSelfLink()},
+					},
+				}, nil
+			},
+		},
+		{
+			name:          "Retry when latest visible insert operation already failed",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionFalse,
+				Reason:  machineCreationFailedReason,
+				Message: asyncFailureErr.Error(),
+			},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "retry-after-failed-visible-op", Status: "RUNNING"}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404, Message: "not found"}
+			},
+			mockZoneOperationsList: func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+				return &compute.OperationList{
+					Items: []*compute.Operation{withTargetLink(asyncFailureOp, testCreateInstanceSelfLink())},
+				}, nil
+			},
+		},
+		{
+			name: "Reconcile on instance create conflict when instance exists",
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return nil, &googleapi.Error{Code: 409, Message: "already exists"}
+			},
+			// default MockInstancesGet returns a running instance → reconcile succeeds
+		},
+		{
+			name:          "Requeue on instance create conflict when instance not found yet",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return nil, &googleapi.Error{Code: 409, Message: "already exists"}
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404, Message: "not found"}
+			},
+		},
+		{
+			name:          "Requeue on wrapped instance create conflict when instance not found yet",
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return nil, fmt.Errorf("wrapped conflict: %w", &googleapi.Error{Code: 409, Message: "already exists"})
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404, Message: "not found"}
+			},
+		},
+		{
+			name: "Skip re-insert when prior successful insert operation exists",
+			mockZoneOperationsList: func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+				return &compute.OperationList{
+					Items: []*compute.Operation{
+						{Status: "DONE", TargetLink: testCreateInstanceSelfLink()},
+					},
+				}, nil
+			},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				t.Fatal("InstancesInsert must not be called when a prior successful insert operation exists")
+				return nil, nil
+			},
+		},
+		{
+			name: "Re-insert when prior successful insert exists but instance is gone",
+			mockZoneOperationsList: func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+				return &compute.OperationList{
+					Items: []*compute.Operation{
+						{Status: "DONE", TargetLink: testCreateInstanceSelfLink()},
+					},
+				}, nil
+			},
+			mockInstancesGet: func(project string, zone string, instance string) (*compute.Instance, error) {
+				return nil, &googleapi.Error{Code: 404, Message: "not found"}
+			},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				return &compute.Operation{Name: "recreate-op", Status: "RUNNING"}, nil
+			},
+			expectedError: &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second},
+		},
+		{
+			name: "Match prior insert op when TargetLink uses compute.googleapis.com host",
+			mockZoneOperationsList: func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+				return &compute.OperationList{
+					Items: []*compute.Operation{
+						{
+							Status:     "DONE",
+							TargetLink: "https://compute.googleapis.com/compute/v1" + resourcePath(testCreateInstanceSelfLink()),
+						},
+					},
+				}, nil
+			},
+			mockInstancesInsert: func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+				t.Fatal("InstancesInsert must not be called when a path-matching prior insert exists")
+				return nil, nil
 			},
 		},
 		{
@@ -975,6 +1177,14 @@ func TestCreate(t *testing.T) {
 				mockComputeService.MockInstancesInsert = tc.mockInstancesInsert
 			}
 
+			if tc.mockInstancesGet != nil {
+				mockComputeService.MockInstancesGet = tc.mockInstancesGet
+			}
+
+			if tc.mockZoneOperationsList != nil {
+				mockComputeService.MockZoneOperationsList = tc.mockZoneOperationsList
+			}
+
 			if tc.mockGPUCompatibleMachineTypesList != nil {
 				mockComputeService.MockGPUCompatibleMachineTypesList = tc.mockGPUCompatibleMachineTypesList
 			}
@@ -1020,6 +1230,122 @@ func TestCreate(t *testing.T) {
 	}
 }
 
+func TestCreateRetriesAfterPriorAsyncInsertFailure(t *testing.T) {
+	asyncFailureOp := zoneResourcePoolExhaustedOperation(testZoneResourcePoolExhaustedMessage)
+	asyncFailureErr := mustOperationError(t, asyncFailureOp)
+
+	_, mockComputeService := computeservice.NewComputeServiceMock()
+
+	insertCalls := 0
+
+	mockComputeService.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+		insertCalls++
+		switch insertCalls {
+		case 1:
+			return asyncFailureOp, nil
+		case 2:
+			return &compute.Operation{Name: "retry-op", Status: "RUNNING"}, nil
+		default:
+			t.Fatalf("unexpected InstancesInsert call #%d", insertCalls)
+			return nil, nil
+		}
+	}
+	mockComputeService.MockZoneOperationsList = func(project string, zone string, filter string, orderBy string) (*compute.OperationList, error) {
+		// No prior op until the first insert has been attempted. create() may list
+		// twice (exact host filter + path substring fallback).
+		if insertCalls == 0 {
+			return &compute.OperationList{}, nil
+		}
+
+		return &compute.OperationList{
+			Items: []*compute.Operation{
+				withTargetLink(asyncFailureOp, testInstanceSelfLink("test-project", "us-central1-a", "retry-machine")),
+			},
+		}, nil
+	}
+	mockComputeService.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+		return nil, &googleapi.Error{Code: 404, Message: "not found"}
+	}
+
+	infraObj := &configv1.Infrastructure{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.InfrastructureSpec{
+			PlatformSpec: configv1.PlatformSpec{
+				Type: configv1.GCPPlatformType,
+			},
+		},
+		Status: configv1.InfrastructureStatus{
+			InfrastructureName: "test-748kjf",
+			PlatformStatus: &configv1.PlatformStatus{
+				Type: configv1.GCPPlatformType,
+				GCP:  &configv1.GCPPlatformStatus{},
+			},
+		},
+	}
+	fakeClient := controllerfake.NewClientBuilder().WithObjects(infraObj).WithScheme(scheme.Scheme).Build()
+
+	gate, err := NewDefaultMutableFeatureGate(nil)
+	if err != nil {
+		t.Fatalf("failed to configure feature gates: %s", err.Error())
+	}
+
+	reconciler := newReconciler(&machineScope{
+		machine: &machinev1.Machine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "retry-machine",
+				Namespace: "default",
+				Labels: map[string]string{
+					machinev1.MachineClusterIDLabel: "CLUSTERID",
+				},
+			},
+		},
+		coreClient: fakeClient,
+		providerSpec: &machinev1.GCPMachineProviderSpec{
+			ProjectID:   "test-project",
+			Region:      "us-central1",
+			Zone:        "us-central1-a",
+			MachineType: "n1-standard-1",
+			Disks: []*machinev1.GCPDisk{
+				{
+					Boot:  true,
+					Image: "projects/fooproject/global/images/uefi-image",
+				},
+			},
+		},
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
+		computeService: mockComputeService,
+		projectID:      "test-project",
+		featureGates:   gate,
+		tagService:     tagservice.NewMockTagService(),
+	})
+
+	err = reconciler.create()
+	if err == nil {
+		t.Fatal("expected first create to surface the async insert failure")
+	}
+
+	expectedFirstErr := fmt.Sprintf("failed to create instance via compute service: %v", asyncFailureErr)
+	if err.Error() != expectedFirstErr {
+		t.Fatalf("expected first create error %q, got %q", expectedFirstErr, err.Error())
+	}
+
+	err = reconciler.create()
+	if err == nil {
+		t.Fatal("expected second create to retry the insert and requeue")
+	}
+
+	var requeueErr *machinecontroller.RequeueAfterError
+	if !errors.As(err, &requeueErr) {
+		t.Fatalf("expected second create to retry insert and return requeue, got %v", err)
+	}
+
+	if insertCalls != 2 {
+		t.Fatalf("expected InstancesInsert to be retried after prior async failure, got %d calls", insertCalls)
+	}
+}
+
 func TestReconcileMachineWithCloudState(t *testing.T) {
 	_, mockComputeService := computeservice.NewComputeServiceMock()
 
@@ -1061,7 +1387,7 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 	}
 
 	r := newReconciler(&machineScope)
-	if err := r.reconcileMachineWithCloudState(nil); err != nil {
+	if err := r.reconcileMachineWithCloudState(nil, true); err != nil {
 		t.Errorf("reconciler was not expected to return error: %v", err)
 	}
 	if r.machine.Status.Addresses[0] != expectedNodeAddresses[0] {
@@ -1079,6 +1405,48 @@ func TestReconcileMachineWithCloudState(t *testing.T) {
 	}
 	if *r.providerStatus.InstanceID != instanceName {
 		t.Errorf("Expected: %s, got: %s", instanceName, *r.providerStatus.InstanceID)
+	}
+}
+
+func TestReconcileMachineWithCloudStateNotFoundIsNotTransient(t *testing.T) {
+	_, mockComputeService := computeservice.NewComputeServiceMock()
+
+	mockComputeService.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+		return nil, &googleapi.Error{Code: 404, Message: "not found"}
+	}
+
+	reconciler := newReconciler(&machineScope{
+		machine: &machinev1.Machine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "testInstance",
+				Namespace: "",
+			},
+		},
+		coreClient: controllerfake.NewFakeClient(),
+		providerSpec: &machinev1.GCPMachineProviderSpec{
+			Zone: "us-east1-b",
+			Disks: []*machinev1.GCPDisk{
+				{
+					Boot:  true,
+					Image: "projects/fooproject/global/images/uefi-image",
+				},
+			},
+		},
+		projectID:      "testProject",
+		providerStatus: &machinev1.GCPMachineProviderStatus{},
+		computeService: mockComputeService,
+	})
+
+	err := reconciler.reconcileMachineWithCloudState(nil, false)
+	if err == nil {
+		t.Fatal("expected error when not found is not transient")
+	}
+	if _, ok := err.(*machinecontroller.RequeueAfterError); ok {
+		t.Fatalf("expected non-requeue error, got %v", err)
+	}
+	expected := "failed to get instance via compute service: googleapi: Error 404: not found"
+	if err.Error() != expected {
+		t.Fatalf("expected %q, got %q", expected, err.Error())
 	}
 }
 
@@ -1796,5 +2164,106 @@ func TestEnsureCorrectNetworkAndSubnetName(t *testing.T) {
 		if actualNetworkName != tc.expectedNetworkName || actualSubnetworkName != tc.expectedSubnetworkName {
 			t.Errorf("Expected NetworkName: %s, got: %s\nExpected SubnetworkName: %s, got: %s", tc.expectedNetworkName, actualNetworkName, tc.expectedSubnetworkName, actualSubnetworkName)
 		}
+	}
+}
+
+func TestOperationError(t *testing.T) {
+	cases := []struct {
+		name        string
+		op          *compute.Operation
+		expectedErr string
+	}{
+		{
+			name:        "nil operation",
+			op:          nil,
+			expectedErr: "",
+		},
+		{
+			name:        "operation with no errors",
+			op:          &compute.Operation{Status: "DONE"},
+			expectedErr: "",
+		},
+		{
+			name: "ZONE_RESOURCE_POOL_EXHAUSTED",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{
+						{
+							Code:    "ZONE_RESOURCE_POOL_EXHAUSTED",
+							Message: "The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+						},
+					},
+				},
+			},
+			expectedErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request.",
+		},
+		{
+			name: "code only, no message",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{
+						{Code: "QUOTA_EXCEEDED"},
+					},
+				},
+			},
+			expectedErr: "GCP operation failed: QUOTA_EXCEEDED",
+		},
+		{
+			name: "multiple errors",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{
+						{Code: "ZONE_RESOURCE_POOL_EXHAUSTED", Message: "no resources"},
+						{Code: "QUOTA_EXCEEDED", Message: "quota hit"},
+					},
+				},
+			},
+			expectedErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources; QUOTA_EXCEEDED: quota hit",
+		},
+		{
+			name: "nil error elements are skipped",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{
+						nil,
+						{Code: "QUOTA_EXCEEDED", Message: "quota hit"},
+					},
+				},
+			},
+			expectedErr: "GCP operation failed: QUOTA_EXCEEDED: quota hit",
+		},
+		{
+			name: "only nil error elements",
+			op: &compute.Operation{
+				Status: "DONE",
+				Error: &compute.OperationError{
+					Errors: []*compute.OperationErrorErrors{nil, nil},
+				},
+			},
+			expectedErr: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := operationError(tc.op)
+			if tc.expectedErr == "" {
+				if err != nil {
+					t.Errorf("expected nil error, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Errorf("expected error %q, got nil", tc.expectedErr)
+				return
+			}
+			if err.Error() != tc.expectedErr {
+				t.Errorf("expected error:\n  %q\ngot:\n  %q", tc.expectedErr, err.Error())
+			}
+		})
 	}
 }

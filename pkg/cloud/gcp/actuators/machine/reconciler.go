@@ -419,22 +419,41 @@ func (r *Reconciler) create() error {
 		Items: metadataItems,
 	}
 
-	_, err = r.computeService.InstancesInsert(r.projectID, zone, instance)
-	if err != nil {
-		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
-			Name:      r.machine.Name,
-			Namespace: r.machine.Namespace,
-			Reason:    "failed to create instance via compute service",
-		})
-		if reconcileWithCloudError := r.reconcileMachineWithCloudState(&metav1.Condition{
-			Type:    string(machinev1.MachineCreated),
-			Reason:  machineCreationFailedReason,
-			Message: err.Error(),
-			Status:  metav1.ConditionFalse,
-		}); reconcileWithCloudError != nil {
-			klog.Errorf("Failed to reconcile machine with cloud state: %v", reconcileWithCloudError)
+	if existingOp, err := r.latestVisibleInsertOperation(); err == nil && existingOp != nil {
+		if existingOp.Status != "DONE" {
+			klog.Infof("%s: insert operation still in progress, requeuing", r.machine.Name)
+			return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 		}
-		if googleError, ok := err.(*googleapi.Error); ok {
+		if err := operationError(existingOp); err != nil {
+			klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, existingOp.Error.Errors)
+			r.recordFailedInstanceCreate(err)
+			klog.Infof("%s: retrying instance create after failed insert operation", r.machine.Name)
+		} else {
+			_, getErr := r.computeService.InstancesGet(r.projectID, r.providerSpec.Zone, r.machine.Name)
+			if isNotFoundError(getErr) {
+				klog.Infof("%s: prior insert operation succeeded but instance not found, retrying create", r.machine.Name)
+			} else if getErr != nil {
+				return fmt.Errorf("failed to get instance via compute service: %v", getErr)
+			} else {
+				klog.Infof("%s: prior insert operation succeeded, reconciling instance state", r.machine.Name)
+				return r.reconcileMachineWithCloudState(nil, true)
+			}
+		}
+	} else if err != nil {
+		klog.Warningf("%s: failed to determine insert operation: %v", r.machine.Name, err)
+	}
+
+	insertOp, err := r.computeService.InstancesInsert(r.projectID, zone, instance)
+	if err != nil {
+		var googleError *googleapi.Error
+		if errors.As(err, &googleError) && googleError.Code == 409 {
+			// Conflict usually means the instance already exists or an insert is racing;
+			// reconcile (requeue on transient 404) instead of treating 409 as terminal.
+			klog.Infof("%s: instance create returned conflict, reconciling", r.machine.Name)
+			return r.reconcileMachineWithCloudState(nil, true)
+		}
+		r.recordFailedInstanceCreate(err)
+		if errors.As(err, &googleError) {
 			// we return InvalidMachineConfiguration for 4xx errors which by convention signal client misconfiguration
 			// https://tools.ietf.org/html/rfc2616#section-6.1.1
 			if strings.HasPrefix(strconv.Itoa(googleError.Code), "4") {
@@ -444,7 +463,11 @@ func (r *Reconciler) create() error {
 		}
 		return fmt.Errorf("failed to create instance via compute service: %v", err)
 	}
-	return r.reconcileMachineWithCloudState(nil)
+	if err := operationError(insertOp); err != nil {
+		r.recordFailedInstanceCreate(err)
+		return fmt.Errorf("failed to create instance via compute service: %v", err)
+	}
+	return r.reconcileMachineWithCloudState(nil, true)
 }
 
 func (r *Reconciler) update() error {
@@ -463,13 +486,13 @@ func (r *Reconciler) update() error {
 			return fmt.Errorf("failed to register instance to instance group: %v", err)
 		}
 	}
-	return r.reconcileMachineWithCloudState(nil)
+	return r.reconcileMachineWithCloudState(nil, false)
 }
 
 // reconcileMachineWithCloudState reconcile machineSpec and status with the latest cloud state
 // if a failedCondition is passed it updates the providerStatus.Conditions and return
 // otherwise it fetches the relevant cloud instance and reconcile the rest of the fields
-func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *metav1.Condition) error {
+func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *metav1.Condition, treatNotFoundAsTransient bool) error {
 	klog.Infof("%s: Reconciling machine object with cloud state", r.machine.Name)
 	if failedCondition != nil {
 		r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, *failedCondition)
@@ -477,6 +500,9 @@ func (r *Reconciler) reconcileMachineWithCloudState(failedCondition *metav1.Cond
 	} else {
 		freshInstance, err := r.computeService.InstancesGet(r.projectID, r.providerSpec.Zone, r.machine.Name)
 		if err != nil {
+			if isNotFoundError(err) && treatNotFoundAsTransient {
+				return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+			}
 			return fmt.Errorf("failed to get instance via compute service: %v", err)
 		}
 
@@ -691,12 +717,86 @@ func (r *Reconciler) delete() error {
 	return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 }
 
-func isNotFoundError(err error) bool {
-	switch t := err.(type) {
-	case *googleapi.Error:
-		return t.Code == 404
+func (r *Reconciler) latestVisibleInsertOperation() (*compute.Operation, error) {
+	instanceSelfLink := r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	expectedPath := resourcePath(instanceSelfLink)
+	// Prefer exact match on the link the SDK would construct for this universe,
+	// then fall back to a path substring filter so www/compute/sovereign-cloud
+	// hosts stored on Operation.targetLink still resolve.
+	for _, filter := range []string{
+		fmt.Sprintf(`targetLink="%s" AND operationType="insert"`, instanceSelfLink),
+		fmt.Sprintf(`operationType="insert" AND targetLink:"%s"`, expectedPath),
+	} {
+		opList, err := r.computeService.ZoneOperationsList(r.projectID, r.providerSpec.Zone, filter, "creationTimestamp desc")
+		if err != nil {
+			return nil, err
+		}
+		if op := firstMatchingInsertOp(opList, expectedPath); op != nil {
+			return op, nil
+		}
 	}
-	return false
+	return nil, nil
+}
+
+func firstMatchingInsertOp(opList *compute.OperationList, expectedPath string) *compute.Operation {
+	if opList == nil {
+		return nil
+	}
+	for _, op := range opList.Items {
+		if op == nil {
+			continue
+		}
+		if resourcePath(op.TargetLink) == expectedPath {
+			return op
+		}
+	}
+	return nil
+}
+
+// operationError returns an error if a GCP Operation carried a failure, surfacing
+// the specific error codes (e.g. ZONE_RESOURCE_POOL_EXHAUSTED) that would otherwise
+// be invisible when the HTTP request itself succeeded. Returns nil if op has no errors.
+func operationError(op *compute.Operation) error {
+	if op == nil || op.Error == nil || len(op.Error.Errors) == 0 {
+		return nil
+	}
+	msgs := make([]string, 0, len(op.Error.Errors))
+	for _, e := range op.Error.Errors {
+		if e == nil {
+			continue
+		}
+		if e.Message != "" {
+			msgs = append(msgs, e.Code+": "+e.Message)
+		} else {
+			msgs = append(msgs, e.Code)
+		}
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("GCP operation failed: %s", strings.Join(msgs, "; "))
+}
+
+func (r *Reconciler) recordFailedInstanceCreate(err error) {
+	failedCondition := metav1.Condition{
+		Type:    string(machinev1.MachineCreated),
+		Reason:  machineCreationFailedReason,
+		Message: err.Error(),
+		Status:  metav1.ConditionFalse,
+	}
+	if currentCondition := findCondition(r.providerStatus.Conditions, failedCondition.Type); currentCondition == nil || shouldUpdateCondition(*currentCondition, failedCondition) {
+		metrics.RegisterFailedInstanceCreate(&metrics.MachineLabels{
+			Name:      r.machine.Name,
+			Namespace: r.machine.Namespace,
+			Reason:    "failed to create instance via compute service",
+		})
+	}
+	r.providerStatus.Conditions = reconcileConditions(r.providerStatus.Conditions, failedCondition)
+}
+
+func isNotFoundError(err error) bool {
+	var googleError *googleapi.Error
+	return errors.As(err, &googleError) && googleError.Code == 404
 }
 
 func isProjectNotFoundError(err error, projectID string) bool {
