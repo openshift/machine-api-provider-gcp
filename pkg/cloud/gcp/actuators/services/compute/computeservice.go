@@ -2,6 +2,7 @@ package computeservice
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"strings"
 
@@ -46,16 +47,38 @@ type computeService struct {
 // BuilderFuncType is function type for building gcp client
 type BuilderFuncType func(serviceAccountJSON string) (GCPComputeService, error)
 
+// credentialOption returns the appropriate client option for the service account JSON.
+// When raw credential JSON is available and contains a type field, WithAuthCredentialsJSON
+// is used so that the Google API library can apply self-signed JWT authentication for
+// non-default universe domains (e.g., Google Cloud Dedicated).
+func credentialOption(ctx context.Context, serviceAccountJSON string) (option.ClientOption, error) {
+	credJSON := []byte(serviceAccountJSON)
+
+	var f struct {
+		Type option.CredentialsType `json:"type"`
+	}
+	if err := json.Unmarshal(credJSON, &f); err == nil && f.Type != "" {
+		return option.WithAuthCredentialsJSON(f.Type, credJSON), nil
+	}
+
+	// Fall back to traditional credentials for cases without type field
+	creds, err := google.CredentialsFromJSON(ctx, credJSON, compute.CloudPlatformScope)
+	if err != nil {
+		return nil, err
+	}
+	return option.WithCredentials(creds), nil
+}
+
 // NewComputeService return a new computeService
 func NewComputeService(serviceAccountJSON string) (GCPComputeService, error) {
 	ctx := context.TODO()
 
-	creds, err := google.CredentialsFromJSON(ctx, []byte(serviceAccountJSON), compute.CloudPlatformScope)
+	credOpt, err := credentialOption(ctx, serviceAccountJSON)
 	if err != nil {
 		return nil, err
 	}
 
-	service, err := compute.NewService(ctx, option.WithCredentials(creds))
+	service, err := compute.NewService(ctx, credOpt)
 	if err != nil {
 		return nil, err
 	}
