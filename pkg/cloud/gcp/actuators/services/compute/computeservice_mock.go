@@ -79,6 +79,11 @@ func (c *GCPComputeServiceMock) InstancesGet(project string, zone string, instan
 	return c.mockInstancesGet(project, zone, instance)
 }
 
+// SetMockInstancesGet allows tests to customize the InstancesGet behavior
+func (c *GCPComputeServiceMock) SetMockInstancesGet(fn func(project string, zone string, instance string) (*compute.Instance, error)) {
+	c.mockInstancesGet = fn
+}
+
 func (c *GCPComputeServiceMock) ZonesGet(project string, zone string) (*compute.Zone, error) {
 	return nil, nil
 }
