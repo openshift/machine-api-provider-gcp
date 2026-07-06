@@ -84,7 +84,7 @@ func (c *GCPComputeServiceMock) ZonesGet(project string, zone string) (*compute.
 }
 
 func (c *GCPComputeServiceMock) BasePath() string {
-	return "path/"
+	return "https://www.googleapis.com/compute/v1/"
 }
 
 func (c *GCPComputeServiceMock) TargetPoolsGet(project string, region string, name string) (*compute.TargetPool, error) {
