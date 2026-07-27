@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/blang/semver v3.5.1+incompatible
+	github.com/coreos/stream-metadata-go v0.4.11
 	github.com/go-logr/logr v1.4.3
 	github.com/googleapis/gax-go/v2 v2.15.0
 	github.com/onsi/ginkgo/v2 v2.28.1

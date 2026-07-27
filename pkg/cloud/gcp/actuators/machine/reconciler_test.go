@@ -35,6 +35,7 @@ func TestCreate(t *testing.T) {
 		mockGPUCompatibleMachineTypesList func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string)
 		mockInstancesInsert               func(project string, zone string, instance *compute.Instance) (*compute.Operation, error)
 		mockRegionGet                     func(project string, region string) (*compute.Region, error)
+		mockMachineTypesGet               func(project string, zone string, machineType string) (*compute.MachineType, error)
 		validateInstance                  func(t *testing.T, instance *compute.Instance)
 		expectedError                     error
 	}{
@@ -387,16 +388,40 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
-			name: "Boot disk without image fails validation",
+			name: "Boot disk without image resolves fallback image",
 			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Zone:        "us-central1-a",
+				MachineType: "n2-standard-4",
+				ProjectID:   "testProject",
 				Disks: []*machinev1.GCPDisk{
 					{
-						Boot:  true,
-						Image: "",
+						Boot:       true,
+						Image:      "",
+						SizeGB:     128,
+						Type:       "pd-ssd",
+						AutoDelete: true,
 					},
 				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{Network: "default", Subnetwork: "default"},
+				},
+				Region:          "us-central1",
+				ServiceAccounts: []machinev1.GCPServiceAccount{{Email: "test@test.iam.gserviceaccount.com", Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"}}},
 			},
-			expectedError: machinecontroller.InvalidMachineConfiguration("boot disk must specify an image"),
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionTrue,
+				Reason:  machineCreationSucceedReason,
+				Message: machineCreationSucceedMessage,
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.Disks) != 1 {
+					t.Fatalf("expected 1 disk, got %d", len(instance.Disks))
+				}
+				if instance.Disks[0].InitializeParams.SourceImage == "" {
+					t.Error("expected boot disk SourceImage to be resolved, got empty")
+				}
+			},
 		},
 		{
 			name: "Secondary disk without image creates blank disk",
@@ -873,6 +898,48 @@ func TestCreate(t *testing.T) {
 			},
 			expectedError: errors.New("failed validating machine provider spec: preemptible cannot be used together with 'Spot' provisioning model"),
 		},
+		{
+			name: "Boot disk with empty image resolves from machine type architecture",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				Zone:        "us-central1-a",
+				MachineType: "n2-standard-4",
+				ProjectID:   "testProject",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:       true,
+						Image:      "",
+						SizeGB:     128,
+						Type:       "pd-ssd",
+						AutoDelete: true,
+					},
+				},
+				NetworkInterfaces: []*machinev1.GCPNetworkInterface{
+					{Network: "default", Subnetwork: "default"},
+				},
+				Region:          "us-central1",
+				ServiceAccounts: []machinev1.GCPServiceAccount{{Email: "test@test.iam.gserviceaccount.com", Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"}}},
+			},
+			mockMachineTypesGet: func(project, zone, machineType string) (*compute.MachineType, error) {
+				return &compute.MachineType{Architecture: "X86_64"}, nil
+			},
+			expectedCondition: &metav1.Condition{
+				Type:    string(machinev1.MachineCreated),
+				Status:  metav1.ConditionTrue,
+				Reason:  machineCreationSucceedReason,
+				Message: machineCreationSucceedMessage,
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.Disks) != 1 {
+					t.Fatalf("expected 1 disk, got %d", len(instance.Disks))
+				}
+				if instance.Disks[0].InitializeParams.SourceImage == "" {
+					t.Error("expected boot disk SourceImage to be resolved, got empty")
+				}
+				if !strings.Contains(instance.Disks[0].InitializeParams.SourceImage, "rhcos") {
+					t.Errorf("expected RHCOS image, got %s", instance.Disks[0].InitializeParams.SourceImage)
+				}
+			},
+		},
 	}
 
 	mockTagService := tagservice.NewMockTagService()
@@ -981,6 +1048,10 @@ func TestCreate(t *testing.T) {
 
 			if tc.mockRegionGet != nil {
 				mockComputeService.MockRegionGet = tc.mockRegionGet
+			}
+
+			if tc.mockMachineTypesGet != nil {
+				mockComputeService.MockMachineTypesGet = tc.mockMachineTypesGet
 			}
 
 			err = reconciler.create()
