@@ -33,6 +33,10 @@ The Machine API Provider GCP implements the Machine API provider for Google Clou
 - Vendored dependencies (`go mod vendor`, use `GOFLAGS=-mod=vendor`)
 - Feature gates controlled via OpenShift's featuregates mechanism
 
+## Development
+
+- [Bumping Kubernetes and Go](docs/development/bump-k8s-go.md) - Complete runbook for k8s/Go version bumps
+
 ## Quick Reference
 
 ### Essential Commands
@@ -55,7 +59,7 @@ make test-e2e           # E2E tests (requires KUBECONFIG)
 
 ### Running Specific Package Tests
 ```bash
-KUBEBUILDER_ASSETS="$(go run ./vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest use 1.34.1 -p path --bin-dir ./bin --index https://raw.githubusercontent.com/openshift/api/master/envtest-releases.yaml)" \
+KUBEBUILDER_ASSETS="$(go run ./vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest use 1.36.2 -p path --bin-dir ./bin --index https://raw.githubusercontent.com/openshift/api/master/envtest-releases.yaml)" \
 go run ./vendor/github.com/onsi/ginkgo/v2/ginkgo -v ./pkg/cloud/gcp/actuators/machine/...
 ```
 
@@ -152,7 +156,7 @@ make vet    # Check for issues
 
 **Test failures - check envtest setup:**
 ```bash
-KUBEBUILDER_ASSETS="$(go run ./vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest use 1.34.1 -p path --bin-dir ./bin --index https://raw.githubusercontent.com/openshift/api/master/envtest-releases.yaml)" make test
+KUBEBUILDER_ASSETS="$(go run ./vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest use 1.36.2 -p path --bin-dir ./bin --index https://raw.githubusercontent.com/openshift/api/master/envtest-releases.yaml)" make test
 ```
 **GCP API Error Codes:**
 - `400`: Invalid configuration (zone, machine type, etc.)
