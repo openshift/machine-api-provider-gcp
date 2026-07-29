@@ -273,6 +273,7 @@ func (p *pass) loadPackageNames(ctx context.Context, imports []*ImportInfo) erro
 		}
 		unknown = append(unknown, imp.ImportPath)
 	}
+
 	names, err := p.source.LoadPackageNames(ctx, p.srcDir, unknown)
 	if err != nil {
 		return err
