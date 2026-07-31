@@ -7,9 +7,18 @@ import (
 	"github.com/coreos/stream-metadata-go/stream"
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	corev1 "k8s.io/api/core/v1"
+	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var osImageStreamGVK = schema.GroupVersionKind{
+	Group:   "machineconfiguration.openshift.io",
+	Version: "v1",
+	Kind:    "OSImageStream",
+}
 
 func (r *Reconciler) resolveBootImage() (string, error) {
 	arch := r.resolveArchitecture()
@@ -58,9 +67,9 @@ func (r *Reconciler) resolveImageFromConfigMap(arch util.NormalizedArch) (string
 		return "", fmt.Errorf("failed to get coreos-bootimages ConfigMap: %w", err)
 	}
 
-	streamData, ok := cm.Data["stream"]
-	if !ok {
-		return "", fmt.Errorf("coreos-bootimages ConfigMap missing 'stream' key")
+	streamData, err := r.resolveStreamData(cm.Data)
+	if err != nil {
+		return "", err
 	}
 
 	var st stream.Stream
@@ -79,6 +88,55 @@ func (r *Reconciler) resolveImageFromConfigMap(arch util.NormalizedArch) (string
 	}
 
 	return gcpImageReference(archData.Images.Gcp.Project, archData.Images.Gcp.Name), nil
+}
+
+func (r *Reconciler) resolveStreamData(cmData map[string]string) (string, error) {
+	streamsRaw, hasStreams := cmData["streams"]
+	if hasStreams {
+		streamName := r.resolveActiveStreamName()
+		var streams map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(streamsRaw), &streams); err != nil {
+			return "", fmt.Errorf("failed to parse streams data from ConfigMap: %w", err)
+		}
+
+		data, ok := streams[streamName]
+		if !ok {
+			return "", fmt.Errorf("stream %q not found in coreos-bootimages ConfigMap streams key", streamName)
+		}
+		return string(data), nil
+	}
+
+	streamData, hasStream := cmData["stream"]
+	if hasStream {
+		klog.V(3).Info("coreos-bootimages ConfigMap missing 'streams' key, falling back to deprecated 'stream' key")
+		return streamData, nil
+	}
+
+	return "", fmt.Errorf("coreos-bootimages ConfigMap missing both 'streams' and 'stream' keys")
+}
+
+func (r *Reconciler) resolveActiveStreamName() string {
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(osImageStreamGVK)
+
+	err := r.coreClient.Get(r.Context, client.ObjectKey{Name: osImageStreamName}, obj)
+	if err != nil {
+		if apimachineryerrors.IsNotFound(err) {
+			klog.V(3).Infof("OSImageStream CR not found, defaulting to stream %q", defaultOSStreamName)
+		} else {
+			klog.Warningf("Failed to get OSImageStream CR: %v, defaulting to stream %q", err, defaultOSStreamName)
+		}
+		return defaultOSStreamName
+	}
+
+	defaultStream, found, err := unstructured.NestedString(obj.Object, "spec", "defaultStream")
+	if err != nil || !found || defaultStream == "" {
+		klog.V(3).Infof("OSImageStream CR has no spec.defaultStream set, defaulting to stream %q", defaultOSStreamName)
+		return defaultOSStreamName
+	}
+
+	klog.V(3).Infof("Resolved active OS stream from OSImageStream CR: %s", defaultStream)
+	return defaultStream
 }
 
 func archToStreamArch(arch util.NormalizedArch) string {

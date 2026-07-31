@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -10,12 +11,16 @@ import (
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	compute "google.golang.org/api/compute/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	controllerfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-const testStreamJSON = `{
+const testStreamRHEL9JSON = `{
 	"stream": "stable",
 	"metadata": {"last-modified": "2024-01-01T00:00:00Z"},
 	"architectures": {
@@ -42,6 +47,42 @@ const testStreamJSON = `{
 	}
 }`
 
+const testStreamRHEL10JSON = `{
+	"stream": "stable",
+	"metadata": {"last-modified": "2025-06-01T00:00:00Z"},
+	"architectures": {
+		"x86_64": {
+			"artifacts": {},
+			"images": {
+				"gcp": {
+					"release": "420.stable",
+					"project": "rhcos-cloud",
+					"name": "rhcos-420-stable-x86-64"
+				}
+			}
+		},
+		"aarch64": {
+			"artifacts": {},
+			"images": {
+				"gcp": {
+					"release": "420.stable",
+					"project": "rhcos-cloud",
+					"name": "rhcos-420-stable-aarch64"
+				}
+			}
+		}
+	}
+}`
+
+func testStreamsJSON() string {
+	streams := map[string]json.RawMessage{
+		"rhel-9":  json.RawMessage(testStreamRHEL9JSON),
+		"rhel-10": json.RawMessage(testStreamRHEL10JSON),
+	}
+	data, _ := json.Marshal(streams)
+	return string(data)
+}
+
 func testBootImagesConfigMap() *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -49,9 +90,32 @@ func testBootImagesConfigMap() *corev1.ConfigMap {
 			Namespace: coreOSBootImagesNamespace,
 		},
 		Data: map[string]string{
-			"stream": testStreamJSON,
+			"streams": testStreamsJSON(),
 		},
 	}
+}
+
+func testBootImagesConfigMapLegacy() *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      coreOSBootImagesName,
+			Namespace: coreOSBootImagesNamespace,
+		},
+		Data: map[string]string{
+			"stream": testStreamRHEL9JSON,
+		},
+	}
+}
+
+func testOSImageStream(t *testing.T, defaultStream string) *unstructured.Unstructured {
+	t.Helper()
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(osImageStreamGVK)
+	obj.SetName(osImageStreamName)
+	if err := unstructured.SetNestedField(obj.Object, defaultStream, "spec", "defaultStream"); err != nil {
+		t.Fatalf("failed to set defaultStream on OSImageStream fixture: %v", err)
+	}
+	return obj
 }
 
 func TestResolveBootImage(t *testing.T) {
@@ -61,25 +125,58 @@ func TestResolveBootImage(t *testing.T) {
 		mockMachineType    *compute.MachineType
 		mockMachineTypeErr error
 		configMap          *corev1.ConfigMap
+		osImageStream      *unstructured.Unstructured
 		expectedImage      string
 	}{
 		{
-			name:        "x86_64 machine type resolves from ConfigMap",
+			name:        "x86_64 resolves rhel-10 image when OSImageStream defaults to rhel-10",
 			machineType: "n2-standard-4",
 			mockMachineType: &compute.MachineType{
 				Architecture: "X86_64",
 			},
 			configMap:     testBootImagesConfigMap(),
-			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
+			osImageStream: testOSImageStream(t, "rhel-10"),
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-420-stable-x86-64"),
 		},
 		{
-			name:        "ARM64 machine type resolves from ConfigMap",
+			name:        "ARM64 resolves rhel-10 image when OSImageStream defaults to rhel-10",
 			machineType: "t2a-standard-4",
 			mockMachineType: &compute.MachineType{
 				Architecture: "ARM64",
 			},
 			configMap:     testBootImagesConfigMap(),
-			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-aarch64"),
+			osImageStream: testOSImageStream(t, "rhel-10"),
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-420-stable-aarch64"),
+		},
+		{
+			name:        "x86_64 resolves rhel-9 image when OSImageStream defaults to rhel-9",
+			machineType: "n2-standard-4",
+			mockMachineType: &compute.MachineType{
+				Architecture: "X86_64",
+			},
+			configMap:     testBootImagesConfigMap(),
+			osImageStream: testOSImageStream(t, "rhel-9"),
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
+		},
+		{
+			name:        "defaults to rhel-9 when OSImageStream CR not found",
+			machineType: "n2-standard-4",
+			mockMachineType: &compute.MachineType{
+				Architecture: "X86_64",
+			},
+			configMap:     testBootImagesConfigMap(),
+			osImageStream: nil,
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
+		},
+		{
+			name:        "falls back to deprecated stream key when streams key missing",
+			machineType: "n2-standard-4",
+			mockMachineType: &compute.MachineType{
+				Architecture: "X86_64",
+			},
+			configMap:     testBootImagesConfigMapLegacy(),
+			osImageStream: nil,
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
 		},
 		{
 			name:        "missing ConfigMap falls back to x86 default",
@@ -88,6 +185,7 @@ func TestResolveBootImage(t *testing.T) {
 				Architecture: "X86_64",
 			},
 			configMap:     nil,
+			osImageStream: nil,
 			expectedImage: defaultGCPBootImageX86,
 		},
 		{
@@ -97,6 +195,7 @@ func TestResolveBootImage(t *testing.T) {
 				Architecture: "ARM64",
 			},
 			configMap:     nil,
+			osImageStream: nil,
 			expectedImage: defaultGCPBootImageARM,
 		},
 		{
@@ -104,6 +203,7 @@ func TestResolveBootImage(t *testing.T) {
 			machineType:        "n2-standard-4",
 			mockMachineTypeErr: fmt.Errorf("API unavailable"),
 			configMap:          nil,
+			osImageStream:      nil,
 			expectedImage:      defaultGCPBootImageX86,
 		},
 		{
@@ -111,6 +211,7 @@ func TestResolveBootImage(t *testing.T) {
 			machineType:        "t2a-standard-4",
 			mockMachineTypeErr: fmt.Errorf("API unavailable"),
 			configMap:          nil,
+			osImageStream:      nil,
 			expectedImage:      defaultGCPBootImageARM,
 		},
 		{
@@ -120,6 +221,7 @@ func TestResolveBootImage(t *testing.T) {
 				Architecture: "",
 			},
 			configMap:     testBootImagesConfigMap(),
+			osImageStream: nil,
 			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-aarch64"),
 		},
 		{
@@ -129,8 +231,15 @@ func TestResolveBootImage(t *testing.T) {
 				Architecture: "ARCHITECTURE_UNSPECIFIED",
 			},
 			configMap:     testBootImagesConfigMap(),
+			osImageStream: nil,
 			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
 		},
+	}
+
+	osImageStreamGVR := schema.GroupVersionResource{
+		Group:    osImageStreamGVK.Group,
+		Version:  osImageStreamGVK.Version,
+		Resource: "osimagestreams",
 	}
 
 	for _, tc := range cases {
@@ -144,9 +253,22 @@ func TestResolveBootImage(t *testing.T) {
 				},
 			}
 
-			clientBuilder := controllerfake.NewClientBuilder().WithScheme(scheme.Scheme)
+			s := runtime.NewScheme()
+			if err := scheme.AddToScheme(s); err != nil {
+				t.Fatalf("failed to add scheme: %v", err)
+			}
+			s.AddKnownTypeWithName(
+				osImageStreamGVK,
+				&unstructured.Unstructured{},
+			)
+
+			clientBuilder := controllerfake.NewClientBuilder().WithScheme(s)
 			if tc.configMap != nil {
 				clientBuilder.WithObjects(tc.configMap)
+			}
+			if tc.osImageStream != nil {
+				clientBuilder.WithRESTMapper(newFakeRESTMapper(osImageStreamGVK, osImageStreamGVR))
+				clientBuilder.WithObjects(tc.osImageStream)
 			}
 			fakeClient := clientBuilder.Build()
 
@@ -199,4 +321,10 @@ func TestGcpImageReference(t *testing.T) {
 	if got != expected {
 		t.Errorf("gcpImageReference() = %q, want %q", got, expected)
 	}
+}
+
+func newFakeRESTMapper(gvk schema.GroupVersionKind, gvr schema.GroupVersionResource) meta.RESTMapper {
+	m := meta.NewDefaultRESTMapper([]schema.GroupVersion{gvk.GroupVersion()})
+	m.Add(gvk, meta.RESTScopeRoot)
+	return m
 }
