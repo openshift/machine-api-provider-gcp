@@ -40,6 +40,9 @@ const (
 	defaultGCPBootImageARM    = "projects/rhcos-cloud/global/images/rhcos-414-92-202311241643-0-gcp-aarch64"
 	coreOSBootImagesNamespace = "openshift-machine-config-operator"
 	coreOSBootImagesName      = "coreos-bootimages"
+
+	defaultOSStreamName = "rhel-9"
+	osImageStreamName   = "cluster"
 )
 
 // Reconciler are list of services required by machine actuator, easy to create a fake
