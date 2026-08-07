@@ -276,6 +276,7 @@ func TestResolveBootImage(t *testing.T) {
 				machineScope: &machineScope{
 					Context:        context.Background(),
 					coreClient:     fakeClient,
+					apiReader:      fakeClient,
 					computeService: mockComputeService,
 					projectID:      "test-project",
 					providerSpec: &machinev1.GCPMachineProviderSpec{

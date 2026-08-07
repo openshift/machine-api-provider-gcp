@@ -1226,6 +1226,7 @@ func TestCreate(t *testing.T) {
 					},
 				},
 				coreClient:     fakeClient,
+				apiReader:      fakeClient,
 				providerSpec:   providerSpec,
 				providerStatus: &machinev1.GCPMachineProviderStatus{},
 				computeService: mockComputeService,
