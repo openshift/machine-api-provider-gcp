@@ -25,11 +25,11 @@ func (r *Reconciler) resolveBootImage() (string, error) {
 
 	image, err := r.resolveImageFromConfigMap(arch)
 	if err != nil {
-		klog.V(3).Infof("Failed to resolve boot image from coreos-bootimages ConfigMap: %v, using fallback", err)
+		klog.Warningf("Failed to resolve boot image from coreos-bootimages ConfigMap: %v, using fallback", err)
 		return fallbackImage(arch), nil
 	}
 	if image == "" {
-		klog.V(3).Infof("No GCP image found in coreos-bootimages for arch %s, using fallback", arch)
+		klog.Warningf("No GCP image found in coreos-bootimages for arch %s, using fallback", arch)
 		return fallbackImage(arch), nil
 	}
 
@@ -60,7 +60,7 @@ func (r *Reconciler) resolveArchitecture() util.NormalizedArch {
 
 func (r *Reconciler) resolveImageFromConfigMap(arch util.NormalizedArch) (string, error) {
 	var cm corev1.ConfigMap
-	if err := r.coreClient.Get(r.Context, client.ObjectKey{
+	if err := r.apiReader.Get(r.Context, client.ObjectKey{
 		Namespace: coreOSBootImagesNamespace,
 		Name:      coreOSBootImagesName,
 	}, &cm); err != nil {
@@ -119,7 +119,7 @@ func (r *Reconciler) resolveActiveStreamName() string {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(osImageStreamGVK)
 
-	err := r.coreClient.Get(r.Context, client.ObjectKey{Name: osImageStreamName}, obj)
+	err := r.apiReader.Get(r.Context, client.ObjectKey{Name: osImageStreamName}, obj)
 	if err != nil {
 		if apimachineryerrors.IsNotFound(err) {
 			klog.V(3).Infof("OSImageStream CR not found, defaulting to stream %q", defaultOSStreamName)

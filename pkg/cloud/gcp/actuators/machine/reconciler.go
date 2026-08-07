@@ -36,8 +36,10 @@ const (
 	openshiftMachineRoleLabel = "machine.openshift.io/cluster-api-machine-role"
 	masterMachineRole         = "master"
 
-	defaultGCPBootImageX86    = "projects/rhcos-cloud/global/images/rhcos-414-92-202311241643-0-gcp-x86-64"
-	defaultGCPBootImageARM    = "projects/rhcos-cloud/global/images/rhcos-414-92-202311241643-0-gcp-aarch64"
+	// Last-resort fallback images used when the coreos-bootimages ConfigMap is unavailable.
+	// Sourced from openshift/installer release-4.18 data/data/coreos/rhcos.json.
+	defaultGCPBootImageX86    = "projects/rhcos-cloud/global/images/rhcos-418-94-202602022246-0-gcp-x86-64"
+	defaultGCPBootImageARM    = "projects/rhcos-cloud/global/images/rhcos-418-94-202602022246-0-gcp-aarch64"
 	coreOSBootImagesNamespace = "openshift-machine-config-operator"
 	coreOSBootImagesName      = "coreos-bootimages"
 
