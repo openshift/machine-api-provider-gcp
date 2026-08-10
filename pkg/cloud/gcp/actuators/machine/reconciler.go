@@ -37,9 +37,9 @@ const (
 	masterMachineRole         = "master"
 
 	// Last-resort fallback images used when the coreos-bootimages ConfigMap is unavailable.
-	// Sourced from openshift/installer release-4.18 data/data/coreos/rhcos.json.
-	defaultGCPBootImageX86    = "projects/rhcos-cloud/global/images/rhcos-418-94-202602022246-0-gcp-x86-64"
-	defaultGCPBootImageARM    = "projects/rhcos-cloud/global/images/rhcos-418-94-202602022246-0-gcp-aarch64"
+	// Sourced from openshift/installer release-5.0 data/data/coreos/rhcos.json.
+	defaultGCPBootImageX86    = "projects/rhcos-cloud/global/images/rhcos-10-2-20260423-0-gcp-x86-64"
+	defaultGCPBootImageARM    = "projects/rhcos-cloud/global/images/rhcos-10-2-20260423-0-gcp-aarch64"
 	coreOSBootImagesNamespace = "openshift-machine-config-operator"
 	coreOSBootImagesName      = "coreos-bootimages"
 
