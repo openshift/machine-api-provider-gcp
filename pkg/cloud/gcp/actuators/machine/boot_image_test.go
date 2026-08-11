@@ -159,14 +159,14 @@ func TestResolveBootImage(t *testing.T) {
 			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
 		},
 		{
-			name:        "defaults to rhel-9 when OSImageStream CR not found",
+			name:        "defaults to rhel-10 when OSImageStream CR not found",
 			machineType: "n2-standard-4",
 			mockMachineType: &compute.MachineType{
 				Architecture: "X86_64",
 			},
 			configMap:     testBootImagesConfigMap(),
 			osImageStream: nil,
-			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-420-stable-x86-64"),
 		},
 		{
 			name:        "falls back to deprecated stream key when streams key missing",
@@ -176,7 +176,7 @@ func TestResolveBootImage(t *testing.T) {
 			},
 			configMap:     testBootImagesConfigMapLegacy(),
 			osImageStream: nil,
-			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"), // legacy key ignores stream name
 		},
 		{
 			name:        "missing ConfigMap falls back to x86 default",
@@ -222,7 +222,7 @@ func TestResolveBootImage(t *testing.T) {
 			},
 			configMap:     testBootImagesConfigMap(),
 			osImageStream: nil,
-			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-aarch64"),
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-420-stable-aarch64"),
 		},
 		{
 			name:        "ARCHITECTURE_UNSPECIFIED falls back to prefix-based detection",
@@ -232,7 +232,7 @@ func TestResolveBootImage(t *testing.T) {
 			},
 			configMap:     testBootImagesConfigMap(),
 			osImageStream: nil,
-			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-418-stable-x86-64"),
+			expectedImage: gcpImageReference("rhcos-cloud", "rhcos-420-stable-x86-64"),
 		},
 	}
 

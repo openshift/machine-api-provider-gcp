@@ -43,7 +43,7 @@ const (
 	coreOSBootImagesNamespace = "openshift-machine-config-operator"
 	coreOSBootImagesName      = "coreos-bootimages"
 
-	defaultOSStreamName = "rhel-9"
+	defaultOSStreamName = "rhel-10"
 	osImageStreamName   = "cluster"
 )
 
