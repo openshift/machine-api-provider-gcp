@@ -332,6 +332,7 @@ func (r *Reconciler) create() error {
 			DiskSizeGb:          disk.SizeGB,
 			DiskType:            fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
 			Labels:              labels,
+			Licenses:            disk.Licenses,
 			ResourceManagerTags: userTags,
 		}
 		// Only set SourceImage if it's not empty (blank disk if empty)
