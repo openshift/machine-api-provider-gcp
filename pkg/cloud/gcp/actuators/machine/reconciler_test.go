@@ -628,6 +628,63 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "Disk licenses are passed through to the GCP API call",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+						Licenses: []string{
+							"projects/my-project/global/licenses/my-license",
+							"projects/my-project/global/licenses/my-other-license",
+						},
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.Disks) != 1 {
+					t.Fatalf("expected one disk, got %d", len(instance.Disks))
+				}
+				licenses := instance.Disks[0].InitializeParams.Licenses
+				if len(licenses) != 2 {
+					t.Fatalf("expected 2 licenses, got %d", len(licenses))
+				}
+				expectedLicenses := []string{
+					"projects/my-project/global/licenses/my-license",
+					"projects/my-project/global/licenses/my-other-license",
+				}
+				for i, expected := range expectedLicenses {
+					if licenses[i] != expected {
+						t.Errorf("expected license[%d] %q, got %q", i, expected, licenses[i])
+					}
+				}
+			},
+		},
+		{
+			name: "Nil disk licenses preserves existing behavior",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.Disks) != 1 {
+					t.Fatalf("expected one disk, got %d", len(instance.Disks))
+				}
+				licenses := instance.Disks[0].InitializeParams.Licenses
+				if len(licenses) != 0 {
+					t.Errorf("expected no licenses when not specified, got %v", licenses)
+				}
+			},
+		},
+		{
 			name: "Windows machine puts powershell script in the proper metadata field",
 			labels: map[string]string{
 				"machine.openshift.io/os-id":    "Windows",
