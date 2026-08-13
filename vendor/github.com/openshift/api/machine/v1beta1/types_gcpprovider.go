@@ -244,6 +244,13 @@ type GCPDisk struct {
 	// encryptionKey is the customer-supplied encryption key of the disk.
 	// +optional
 	EncryptionKey *GCPEncryptionKeyReference `json:"encryptionKey,omitempty"`
+	// licenses is a list of license URLs to apply to this disk.
+	// License URLs are GCP resource URLs of the form:
+	// projects/{project}/global/licenses/{license}
+	// These are used to track software licensing costs and BYOL scenarios.
+	// +optional
+	// +listType=atomic
+	Licenses []string `json:"licenses,omitempty"`
 }
 
 // GCPMetadata describes metadata for GCP.
