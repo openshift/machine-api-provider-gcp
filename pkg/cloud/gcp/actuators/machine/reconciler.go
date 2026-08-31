@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -87,13 +86,17 @@ func toComputeProvisioningModel(model *machinev1.GCPProvisioningModelType) (stri
 	return "", fmt.Errorf("unsupported provisioning model value %s", modelValue)
 }
 
+func interruptibleFromSpec(preemptible bool, provisioningModel *machinev1.GCPProvisioningModelType) bool {
+	return preemptible || (provisioningModel != nil && *provisioningModel == machinev1.GCPSpotInstance)
+}
+
 func restartPolicyToBool(policy machinev1.GCPRestartPolicyType, preemptible bool, provisioningModel *machinev1.GCPProvisioningModelType) (*bool, error) {
 	// for more information about how the restart policy works, see the GCP docs at
 	// https://cloud.google.com/compute/docs/instances/setting-vm-host-options#settingoptions
 	if len(policy) == 0 {
 		return nil, nil
 	} else if policy == machinev1.RestartPolicyAlways {
-		if preemptible || (provisioningModel != nil && *provisioningModel == machinev1.GCPSpotInstance) {
+		if interruptibleFromSpec(preemptible, provisioningModel) {
 			return nil, errors.New("preemptible/spot instances cannot be automatically restarted")
 		}
 		return pointer.Bool(true), nil
@@ -124,7 +127,7 @@ func (r *Reconciler) checkQuota(guestAccelerators []machinev1.GCPGPUConfig) erro
 		return machinecontroller.InvalidMachineConfiguration("Unsupported accelerator type %s", accelerator.Type)
 	}
 	// preemptible and spot instances have separate quota with "PREEMPTIBLE_" prefix
-	if r.providerSpec.Preemptible || (r.providerSpec.ProvisioningModel != nil && *r.providerSpec.ProvisioningModel == machinev1.GCPSpotInstance) {
+	if interruptibleFromSpec(r.providerSpec.Preemptible, r.providerSpec.ProvisioningModel) {
 		metric = "PREEMPTIBLE_" + metric
 	}
 
@@ -188,6 +191,14 @@ func (r *Reconciler) validateGuestAccelerators() error {
 func (r *Reconciler) create() error {
 	if err := validateMachine(*r.machine, *r.providerSpec); err != nil {
 		return machinecontroller.InvalidMachineConfiguration("failed validating machine provider spec: %v", err)
+	}
+
+	shouldInsert, err := r.reconcilePriorInsertAttempt()
+	if err != nil {
+		return err
+	}
+	if !shouldInsert {
+		return nil
 	}
 
 	labels, err := util.GetLabelsList(r.coreClient, r.machine.Labels[machinev1.MachineClusterIDLabel], r.providerSpec.Labels)
@@ -419,35 +430,20 @@ func (r *Reconciler) create() error {
 		Items: metadataItems,
 	}
 
-	shouldInsert, err := r.reconcilePriorInsertAttempt()
-	if err != nil {
-		return err
-	}
-	if !shouldInsert {
-		// Already inserting or already reconciled.
-		return nil
-	}
-
 	insertOperation, err := r.computeService.InstancesInsert(r.projectID, zone, instance)
 	if err != nil {
 		var googleError *googleapi.Error
 		if errors.As(err, &googleError) && googleError.Code == 409 {
-			// 409 usually means the instance exists or another insert is racing.
 			klog.Infof("%s: instance create returned conflict, reconciling", r.machine.Name)
 			return r.reconcileAfterCreate()
 		}
 		if isCapacityAPIError(err) {
 			return r.requeueCapacityOnCreate(err)
 		}
-		r.recordFailedInstanceCreate(err)
-		if errors.As(err, &googleError) {
-			// we return InvalidMachineConfiguration for 4xx errors which by convention signal client misconfiguration
-			// https://tools.ietf.org/html/rfc2616#section-6.1.1
-			if strings.HasPrefix(strconv.Itoa(googleError.Code), "4") {
-				klog.Infof("Error launching instance: %v", googleError)
-				return machinecontroller.InvalidMachineConfiguration("error launching instance: %v", googleError.Error())
-			}
+		if isMixedAPIError(err) || isCreateClientError(err) {
+			return r.failInstanceCreate(err)
 		}
+		r.recordFailedInstanceCreateUnlessCapacity(err)
 		return fmt.Errorf("failed to create instance via compute service: %w", err)
 	}
 	class, operationErr := classifyInsertOperation(insertOperation)
@@ -457,8 +453,7 @@ func (r *Reconciler) create() error {
 		return r.requeueCapacityOnCreate(operationErr)
 	case insertOperationTerminalFailed:
 		klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, operationErr)
-		r.recordFailedInstanceCreate(operationErr)
-		return machinecontroller.InvalidMachineConfiguration("error launching instance: %v", operationErr)
+		return r.failInstanceCreate(operationErr)
 	}
 	return r.reconcileAfterCreate()
 }
@@ -473,7 +468,7 @@ func (r *Reconciler) reconcilePriorInsertAttempt() (shouldInsert bool, err error
 	class, operationErr := classifyInsertOperation(existingOp)
 	switch class {
 	case insertOperationAbsent:
-		if capErr, ok := r.capacityErrorFromCondition(); ok {
+		if capErr := r.capacityErrorFromCondition(); capErr != nil {
 			if waitErr := r.createCapacityMayInsert(capErr); waitErr != nil {
 				return false, waitErr
 			}
@@ -491,8 +486,7 @@ func (r *Reconciler) reconcilePriorInsertAttempt() (shouldInsert bool, err error
 		return true, nil
 	case insertOperationTerminalFailed:
 		klog.Errorf("%s: insert operation completed with provider-side errors: %v", r.machine.Name, operationErr)
-		r.recordFailedInstanceCreate(operationErr)
-		return false, machinecontroller.InvalidMachineConfiguration("error launching instance: %v", operationErr)
+		return false, r.failInstanceCreate(operationErr)
 	case insertOperationSucceeded:
 		klog.Infof("%s: prior insert operation succeeded, reconciling instance state", r.machine.Name)
 		recErr := r.reconcileOnUpdate()
@@ -770,6 +764,11 @@ func (r *Reconciler) delete() error {
 	}
 	klog.Infof("%s: machine status is exists, requeuing...", r.machine.Name)
 	return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+}
+
+func (r *Reconciler) failInstanceCreate(err error) error {
+	r.recordFailedInstanceCreate(err)
+	return machinecontroller.InvalidMachineConfiguration("error launching instance: %v", err)
 }
 
 func (r *Reconciler) recordFailedInstanceCreate(err error) {

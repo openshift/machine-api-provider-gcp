@@ -8,15 +8,34 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
+const insertOperationAgeSkew = 2 * time.Minute
+
 func (r *Reconciler) latestVisibleInsertOperation() (*compute.Operation, error) {
-	expectedPath := resourcePath(r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name))
+	selfLink := r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	expectedPath := resourcePath(selfLink)
 	// targetLink:"path" returns 0 rows. Equality works.
-	filter := insertOperationTargetLinkFilter(expectedPath, r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name))
+	filter := insertOperationTargetLinkFilter(expectedPath, selfLink)
 	opList, err := r.computeService.ZoneOperationsList(r.projectID, r.providerSpec.Zone, filter)
 	if err != nil {
 		return nil, err
 	}
-	return latestMatchingInsertOp(opList), nil
+	if opList == nil {
+		return nil, nil
+	}
+	// Drop ops dated before Machine.CreationTimestamp minus insertOperationAgeSkew. Untimed ops stay.
+	cutoff := r.machine.CreationTimestamp.Time.Add(-insertOperationAgeSkew)
+	kept := make([]*compute.Operation, 0, len(opList.Items))
+	for _, op := range opList.Items {
+		if op == nil {
+			continue
+		}
+		t, ok := operationTime(op)
+		if ok && t.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, op)
+	}
+	return latestMatchingInsertOp(&compute.OperationList{Items: kept}), nil
 }
 
 // Live insert ops store www.googleapis.com. The SDK BasePath can be a different host.
@@ -86,18 +105,24 @@ func operationError(op *compute.Operation) error {
 	if op == nil || op.Error == nil {
 		return nil
 	}
+	parts := make([]string, 0, len(op.Error.Errors))
 	for _, e := range op.Error.Errors {
 		if e == nil {
 			continue
 		}
-		if e.Message != "" {
-			return fmt.Errorf("GCP operation failed: %s: %s", e.Code, e.Message)
-		}
-		if e.Code != "" {
-			return fmt.Errorf("GCP operation failed: %s", e.Code)
+		switch {
+		case e.Code != "" && e.Message != "":
+			parts = append(parts, fmt.Sprintf("%s: %s", e.Code, e.Message))
+		case e.Code != "":
+			parts = append(parts, e.Code)
+		case e.Message != "":
+			parts = append(parts, e.Message)
 		}
 	}
-	return nil
+	if len(parts) == 0 {
+		return nil
+	}
+	return fmt.Errorf("GCP operation failed: %s", strings.Join(parts, "; "))
 }
 
 type insertOperationClass int

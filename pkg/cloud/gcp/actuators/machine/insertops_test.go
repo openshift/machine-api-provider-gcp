@@ -42,6 +42,24 @@ func TestClassifyInsertOp(t *testing.T) {
 			},
 		},
 	}
+	mixedCapacityAndQuota := &compute.Operation{
+		Status: "DONE",
+		Error: &compute.OperationError{
+			Errors: []*compute.OperationErrorErrors{
+				{Code: "ZONE_RESOURCE_POOL_EXHAUSTED", Message: "no resources"},
+				{Code: "QUOTA_EXCEEDED", Message: "quota"},
+			},
+		},
+	}
+	mixedQuotaThenCapacity := &compute.Operation{
+		Status: "DONE",
+		Error: &compute.OperationError{
+			Errors: []*compute.OperationErrorErrors{
+				{Code: "QUOTA_EXCEEDED", Message: "quota"},
+				{Code: "ZONE_RESOURCE_POOL_EXHAUSTED", Message: "no resources"},
+			},
+		},
+	}
 	skipNilElem := &compute.Operation{
 		Status: "DONE",
 		Error: &compute.OperationError{
@@ -70,7 +88,9 @@ func TestClassifyInsertOp(t *testing.T) {
 		{name: "DONE clean", op: cleanDone, wantClass: insertOperationSucceeded},
 		{name: "DONE capacity ZONE_RESOURCE_POOL_EXHAUSTED", op: capacityPool, wantClass: insertOperationCapacityFailed, wantErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: The zone 'zones/us-central1-a' does not have enough resources available to fulfill the request."},
 		{name: "DONE terminal INVALID_IMAGE", op: terminal, wantClass: insertOperationTerminalFailed, wantErr: "GCP operation failed: INVALID_IMAGE: bad image"},
-		{name: "multiple errors first wins", op: firstOfMany, wantClass: insertOperationCapacityFailed, wantErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources"},
+		{name: "mixed ZONE_RESOURCE_POOL_EXHAUSTED and INVALID_IMAGE is terminal", op: firstOfMany, wantClass: insertOperationTerminalFailed, wantErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources; INVALID_IMAGE: bad image"},
+		{name: "mixed ZONE_RESOURCE_POOL_EXHAUSTED and QUOTA_EXCEEDED is terminal", op: mixedCapacityAndQuota, wantClass: insertOperationTerminalFailed, wantErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources; QUOTA_EXCEEDED: quota"},
+		{name: "mixed QUOTA_EXCEEDED then ZONE_RESOURCE_POOL_EXHAUSTED is terminal", op: mixedQuotaThenCapacity, wantClass: insertOperationTerminalFailed, wantErr: "GCP operation failed: QUOTA_EXCEEDED: quota; ZONE_RESOURCE_POOL_EXHAUSTED: no resources"},
 		{name: "nil error elements are skipped", op: skipNilElem, wantClass: insertOperationCapacityFailed, wantErr: "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources"},
 		{name: "only nil error elements is succeeded DONE", op: onlyNilElems, wantClass: insertOperationSucceeded},
 	}
