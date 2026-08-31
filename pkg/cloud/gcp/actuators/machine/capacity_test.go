@@ -21,11 +21,14 @@ import (
 )
 
 type capacityTestOpts struct {
-	name       string
-	zone       string
-	projectID  string
-	providerID string
-	status     *machinev1.GCPMachineProviderStatus
+	name              string
+	zone              string
+	projectID         string
+	providerID        string
+	creationTimestamp time.Time
+	preemptible       bool
+	provisioningModel *machinev1.GCPProvisioningModelType
+	status            *machinev1.GCPMachineProviderStatus
 }
 
 func newCapacityTestReconciler(t *testing.T, mock *computeservice.GCPComputeServiceMock, opts capacityTestOpts) *Reconciler {
@@ -38,6 +41,12 @@ func newCapacityTestReconciler(t *testing.T, mock *computeservice.GCPComputeServ
 	}
 	if opts.projectID == "" {
 		opts.projectID = "test-project"
+	}
+	if opts.providerID == "" {
+		opts.providerID = fmt.Sprintf("gce://%s/%s/%s", opts.projectID, opts.zone, opts.name)
+	}
+	if opts.creationTimestamp.IsZero() {
+		opts.creationTimestamp = time.Now()
 	}
 	if opts.status == nil {
 		opts.status = &machinev1.GCPMachineProviderStatus{}
@@ -57,8 +66,9 @@ func newCapacityTestReconciler(t *testing.T, mock *computeservice.GCPComputeServ
 	return newReconciler(&machineScope{
 		machine: &machinev1.Machine{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      opts.name,
-				Namespace: "default",
+				Name:              opts.name,
+				Namespace:         "default",
+				CreationTimestamp: metav1.NewTime(opts.creationTimestamp),
 				Labels: map[string]string{
 					machinev1.MachineClusterIDLabel: "CLUSTERID",
 				},
@@ -66,10 +76,12 @@ func newCapacityTestReconciler(t *testing.T, mock *computeservice.GCPComputeServ
 		},
 		coreClient: controllerfake.NewClientBuilder().WithObjects(infraObj).WithScheme(scheme.Scheme).Build(),
 		providerSpec: &machinev1.GCPMachineProviderSpec{
-			ProjectID:   opts.projectID,
-			Region:      "us-central1",
-			Zone:        opts.zone,
-			MachineType: "n1-standard-1",
+			ProjectID:         opts.projectID,
+			Region:            "us-central1",
+			Zone:              opts.zone,
+			MachineType:       "n1-standard-1",
+			Preemptible:       opts.preemptible,
+			ProvisioningModel: opts.provisioningModel,
 			Disks: []*machinev1.GCPDisk{
 				{Boot: true, Image: "projects/fooproject/global/images/uefi-image"},
 			},
@@ -177,6 +189,218 @@ func TestCreateSyncCapacityDeadline(t *testing.T) {
 		}
 		if requeueErr.RequeueAfter != requeueAfterSeconds*time.Second {
 			t.Fatalf("expected %ds requeue, got %v", requeueAfterSeconds, requeueErr.RequeueAfter)
+		}
+	})
+
+	t.Run("31m non-capacity False then stockout still requeues", func(t *testing.T) {
+		status := &machinev1.GCPMachineProviderStatus{
+			Conditions: []metav1.Condition{{
+				Type:               string(machinev1.MachineCreated),
+				Status:             metav1.ConditionFalse,
+				Reason:             machineCreationFailedReason,
+				Message:            "failed to create instance via compute service: googleapi: Error 500: backend error",
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-31 * time.Minute)),
+			}},
+		}
+		r, mock := newCreateReconciler(t, status)
+		insertCalled := false
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalled = true
+			return nil, syncCapacityErr
+		}
+		err := r.create()
+		if !insertCalled {
+			t.Fatal("expected InstancesInsert on first stockout after 5xx")
+		}
+		if isInvalidMachineConfigurationError(err) {
+			t.Fatalf("first stockout must not inherit the 5xx clock, got %v", err)
+		}
+		var requeueErr *machinecontroller.RequeueAfterError
+		if !errors.As(err, &requeueErr) {
+			t.Fatalf("expected RequeueAfterError, got %v", err)
+		}
+		cond := findCondition(r.providerStatus.Conditions, string(machinev1.MachineCreated))
+		if cond == nil || time.Since(cond.LastTransitionTime.Time) > time.Minute {
+			t.Fatalf("first capacity observation must reset LastTransitionTime, got %#v", cond)
+		}
+	})
+
+	t.Run("preemptible returns InvalidMachineConfiguration without retrying insert", func(t *testing.T) {
+		_, mock := computeservice.NewComputeServiceMock()
+		insertCalls := 0
+		mock.MockZoneOperationsList = func(project string, zone string, filter string) (*compute.OperationList, error) {
+			return &compute.OperationList{}, nil
+		}
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalls++
+			return nil, syncCapacityErr
+		}
+		mock.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+			return nil, &googleapi.Error{Code: 404, Message: "not found"}
+		}
+		r := newCapacityTestReconciler(t, mock, capacityTestOpts{
+			name:        "spot-capacity-machine",
+			preemptible: true,
+		})
+		err := r.create()
+		if insertCalls != 1 {
+			t.Fatalf("expected the first InstancesInsert, got %d", insertCalls)
+		}
+		if !isInvalidMachineConfigurationError(err) {
+			t.Fatalf("expected InvalidMachineConfiguration, got %v", err)
+		}
+		var requeueErr *machinecontroller.RequeueAfterError
+		if errors.As(err, &requeueErr) {
+			t.Fatalf("interruptible capacity must not requeue, got %v", err)
+		}
+	})
+
+	t.Run("Spot provisioningModel returns InvalidMachineConfiguration without retrying insert", func(t *testing.T) {
+		_, mock := computeservice.NewComputeServiceMock()
+		insertCalls := 0
+		mock.MockZoneOperationsList = func(project string, zone string, filter string) (*compute.OperationList, error) {
+			return &compute.OperationList{}, nil
+		}
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalls++
+			return nil, syncCapacityErr
+		}
+		mock.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+			return nil, &googleapi.Error{Code: 404, Message: "not found"}
+		}
+		r := newCapacityTestReconciler(t, mock, capacityTestOpts{
+			name:              "spot-model-capacity-machine",
+			provisioningModel: ptr.To(machinev1.GCPSpotInstance),
+		})
+		err := r.create()
+		if insertCalls != 1 {
+			t.Fatalf("expected the first InstancesInsert, got %d", insertCalls)
+		}
+		if !isInvalidMachineConfigurationError(err) {
+			t.Fatalf("expected InvalidMachineConfiguration, got %v", err)
+		}
+	})
+
+	t.Run("500 during capacity retry does not reset the 30m epoch", func(t *testing.T) {
+		status := &machinev1.GCPMachineProviderStatus{
+			Conditions: []metav1.Condition{{
+				Type:               string(machinev1.MachineCreated),
+				Status:             metav1.ConditionFalse,
+				Reason:             machineCreationFailedReason,
+				Message:            syncCapacityErr.Error(),
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-5 * time.Minute)),
+			}},
+		}
+		r, mock := newCreateReconciler(t, status)
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			return nil, &googleapi.Error{Code: 500, Message: "backend error"}
+		}
+		err := r.create()
+		if isInvalidMachineConfigurationError(err) {
+			t.Fatalf("500 must not Failed, got %v", err)
+		}
+		cond := findCondition(r.providerStatus.Conditions, string(machinev1.MachineCreated))
+		if cond == nil || !messageIsCapacityClass(cond.Message) {
+			t.Fatalf("500 must not replace the capacity condition, got %#v", cond)
+		}
+		if time.Since(cond.LastTransitionTime.Time) < 4*time.Minute {
+			t.Fatalf("500 must not reset LastTransitionTime, got %v", cond.LastTransitionTime)
+		}
+	})
+
+	t.Run("4xx during capacity retry records the client error and Failed", func(t *testing.T) {
+		status := &machinev1.GCPMachineProviderStatus{
+			Conditions: []metav1.Condition{{
+				Type:               string(machinev1.MachineCreated),
+				Status:             metav1.ConditionFalse,
+				Reason:             machineCreationFailedReason,
+				Message:            syncCapacityErr.Error(),
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-5 * time.Minute)),
+			}},
+		}
+		clientErr := &googleapi.Error{
+			Code:    400,
+			Message: "The resource image is not found",
+			Errors: []googleapi.ErrorItem{
+				{Reason: "INVALID_IMAGE", Message: "The resource image is not found"},
+			},
+		}
+		r, mock := newCreateReconciler(t, status)
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			return nil, clientErr
+		}
+		err := r.create()
+		if !isInvalidMachineConfigurationError(err) {
+			t.Fatalf("expected InvalidMachineConfiguration, got %v", err)
+		}
+		cond := findCondition(r.providerStatus.Conditions, string(machinev1.MachineCreated))
+		if cond == nil {
+			t.Fatal("expected MachineCreated=False")
+		}
+		if messageIsCapacityClass(cond.Message) {
+			t.Fatalf("4xx must replace the capacity condition, got %#v", cond)
+		}
+		if !strings.Contains(cond.Message, "INVALID_IMAGE") && !strings.Contains(cond.Message, clientErr.Error()) {
+			t.Fatalf("expected the 4xx cause on MachineCreated, got %#v", cond)
+		}
+	})
+
+	t.Run("mixed 503 stockout and quota is InvalidMachineConfiguration", func(t *testing.T) {
+		mixed := &googleapi.Error{
+			Code:    503,
+			Message: "The zone does not have enough resources available to fulfill the request.",
+			Errors: []googleapi.ErrorItem{
+				{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED", Message: "The zone does not have enough resources available to fulfill the request."},
+				{Reason: "quotaExceeded", Message: "Quota exceeded"},
+			},
+		}
+		_, mock := computeservice.NewComputeServiceMock()
+		insertCalls := 0
+		mock.MockZoneOperationsList = func(project string, zone string, filter string) (*compute.OperationList, error) {
+			return &compute.OperationList{}, nil
+		}
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalls++
+			return nil, mixed
+		}
+		mock.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+			return nil, &googleapi.Error{Code: 404, Message: "not found"}
+		}
+		r := newCapacityTestReconciler(t, mock, capacityTestOpts{name: "mixed-api-machine"})
+		err := r.create()
+		if insertCalls != 1 {
+			t.Fatalf("expected one InstancesInsert, got %d", insertCalls)
+		}
+		if !isInvalidMachineConfigurationError(err) {
+			t.Fatalf("expected InvalidMachineConfiguration, got %v", err)
+		}
+		if strings.Contains(err.Error(), "capacity exhausted after") {
+			t.Fatalf("mixed API error must not use the 30m capacity deadline, got %v", err)
+		}
+	})
+
+	t.Run("mixed capacity+quota condition does not start the 30m clock", func(t *testing.T) {
+		status := &machinev1.GCPMachineProviderStatus{
+			Conditions: []metav1.Condition{{
+				Type:               string(machinev1.MachineCreated),
+				Status:             metav1.ConditionFalse,
+				Reason:             machineCreationFailedReason,
+				Message:            "GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources; QUOTA_EXCEEDED: quota",
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-31 * time.Minute)),
+			}},
+		}
+		r, mock := newCreateReconciler(t, status)
+		insertCalled := false
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalled = true
+			return nil, syncCapacityErr
+		}
+		err := r.create()
+		if strings.Contains(fmt.Sprintf("%v", err), "capacity exhausted after") {
+			t.Fatalf("mixed condition must not fire the capacity deadline, got %v", err)
+		}
+		if !insertCalled {
+			t.Fatal("expected InstancesInsert; mixed condition is not a capacity hold")
 		}
 	})
 }
@@ -478,4 +702,175 @@ func TestWaitForRunningAndCapacityRetry(t *testing.T) {
 		}
 		assertNotProvisioned(t, r)
 	})
+
+	t.Run("stale terminal insert op is ignored and Create inserts", func(t *testing.T) {
+		createdAt := time.Now()
+		staleOp := failedInsertOperation("INVALID_IMAGE", "bad image")
+		staleOp.InsertTime = createdAt.Add(-1 * time.Hour).UTC().Format(time.RFC3339Nano)
+		staleOp.TargetLink = selfLink
+		insertCalled := false
+		_, mock := computeservice.NewComputeServiceMock()
+		mock.MockZoneOperationsList = func(project string, zone string, filter string) (*compute.OperationList, error) {
+			return &compute.OperationList{Items: []*compute.Operation{staleOp}}, nil
+		}
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalled = true
+			return &compute.Operation{Name: "new-insert", Status: "RUNNING"}, nil
+		}
+		mock.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+			return nil, &googleapi.Error{Code: 404, Message: "not found"}
+		}
+		r := newCapacityTestReconciler(t, mock, capacityTestOpts{
+			name:              instanceName,
+			zone:              zone,
+			projectID:         projectID,
+			providerID:        providerID,
+			creationTimestamp: createdAt,
+		})
+		err := r.create()
+		if !insertCalled {
+			t.Fatal("expected InstancesInsert when the listed insert op is older than the Machine")
+		}
+		if isInvalidMachineConfigurationError(err) {
+			t.Fatalf("stale INVALID_IMAGE must not Failed this Machine, got %v", err)
+		}
+	})
+
+	t.Run("insert op after Machine creation is still selected", func(t *testing.T) {
+		createdAt := time.Now()
+		freshOp := failedInsertOperation("INVALID_IMAGE", "bad image")
+		freshOp.InsertTime = createdAt.Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
+		freshOp.TargetLink = selfLink
+		insertCalled := false
+		_, mock := computeservice.NewComputeServiceMock()
+		mock.MockZoneOperationsList = func(project string, zone string, filter string) (*compute.OperationList, error) {
+			return &compute.OperationList{Items: []*compute.Operation{freshOp}}, nil
+		}
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalled = true
+			return &compute.Operation{Name: "should-not-run", Status: "RUNNING"}, nil
+		}
+		r := newCapacityTestReconciler(t, mock, capacityTestOpts{
+			name:              instanceName,
+			zone:              zone,
+			projectID:         projectID,
+			providerID:        providerID,
+			creationTimestamp: createdAt,
+		})
+		err := r.create()
+		if insertCalled {
+			t.Fatal("InstancesInsert must not run when this Machine's insert op is terminal")
+		}
+		if !isInvalidMachineConfigurationError(err) {
+			t.Fatalf("expected InvalidMachineConfiguration, got %v", err)
+		}
+	})
+
+	t.Run("preemptible capacity DONE op does not re-insert", func(t *testing.T) {
+		insertCalled := false
+		_, mock := computeservice.NewComputeServiceMock()
+		mock.MockZoneOperationsList = func(project string, zone string, filter string) (*compute.OperationList, error) {
+			return &compute.OperationList{
+				Items: []*compute.Operation{withTargetLink(asyncFailureOp, selfLink)},
+			}, nil
+		}
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalled = true
+			return nil, nil
+		}
+		mock.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {
+			return nil, &googleapi.Error{Code: 404, Message: "not found"}
+		}
+		r := newCapacityTestReconciler(t, mock, capacityTestOpts{
+			name:        instanceName,
+			zone:        zone,
+			projectID:   projectID,
+			providerID:  providerID,
+			preemptible: true,
+		})
+		err := r.create()
+		if insertCalled {
+			t.Fatal("interruptible must not re-insert after a capacity op")
+		}
+		if !isInvalidMachineConfigurationError(err) {
+			t.Fatalf("expected InvalidMachineConfiguration, got %v", err)
+		}
+	})
+
+	t.Run("mixed capacity and quota insert op is terminal", func(t *testing.T) {
+		mixedOp := &compute.Operation{
+			Status:     "DONE",
+			TargetLink: selfLink,
+			Error: &compute.OperationError{
+				Errors: []*compute.OperationErrorErrors{
+					{Code: "ZONE_RESOURCE_POOL_EXHAUSTED", Message: "no resources"},
+					{Code: "QUOTA_EXCEEDED", Message: "quota"},
+				},
+			},
+		}
+		insertCalled := false
+		_, mock := computeservice.NewComputeServiceMock()
+		mock.MockZoneOperationsList = func(project string, zone string, filter string) (*compute.OperationList, error) {
+			return &compute.OperationList{Items: []*compute.Operation{mixedOp}}, nil
+		}
+		mock.MockInstancesInsert = func(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
+			insertCalled = true
+			return nil, nil
+		}
+		r := newCapacityTestReconciler(t, mock, capacityTestOpts{
+			name:       instanceName,
+			zone:       zone,
+			projectID:  projectID,
+			providerID: providerID,
+		})
+		err := r.create()
+		if insertCalled {
+			t.Fatal("mixed quota must not re-insert")
+		}
+		if !isInvalidMachineConfigurationError(err) {
+			t.Fatalf("expected InvalidMachineConfiguration, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "ZONE_RESOURCE_POOL_EXHAUSTED") || !strings.Contains(err.Error(), "QUOTA_EXCEEDED") {
+			t.Fatalf("expected both codes in the error, got %v", err)
+		}
+	})
+}
+
+func TestIsCapacityAPIError(t *testing.T) {
+	capacityThenQuota := &googleapi.Error{
+		Code: 503,
+		Errors: []googleapi.ErrorItem{
+			{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"},
+			{Reason: "quotaExceeded"},
+		},
+	}
+	quotaThenCapacity := &googleapi.Error{
+		Code: 403,
+		Errors: []googleapi.ErrorItem{
+			{Reason: "quotaExceeded"},
+			{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"},
+		},
+	}
+	onlyCapacity := &googleapi.Error{
+		Code:   503,
+		Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}},
+	}
+	if isCapacityAPIError(capacityThenQuota) || isCapacityAPIError(quotaThenCapacity) {
+		t.Fatal("mixed quota and stockout must not be capacity-retryable")
+	}
+	if !isMixedAPIError(capacityThenQuota) || !isMixedAPIError(quotaThenCapacity) {
+		t.Fatal("mixed quota and stockout must be mixed API errors")
+	}
+	if isMixedAPIError(onlyCapacity) {
+		t.Fatal("stockout-only API error must not be mixed")
+	}
+	if !isCapacityAPIError(onlyCapacity) {
+		t.Fatal("stockout-only API error must be capacity-retryable")
+	}
+	if messageIsCapacityClass("GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources; QUOTA_EXCEEDED: quota") {
+		t.Fatal("joined stockout+quota message must not be capacity-class")
+	}
+	if !messageIsCapacityClass("GCP operation failed: ZONE_RESOURCE_POOL_EXHAUSTED: no resources") {
+		t.Fatal("stockout-only op message must be capacity-class")
+	}
 }
