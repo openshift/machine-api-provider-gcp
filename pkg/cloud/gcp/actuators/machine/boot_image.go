@@ -8,6 +8,7 @@ import (
 	"github.com/openshift/machine-api-provider-gcp/pkg/cloud/gcp/actuators/util"
 	corev1 "k8s.io/api/core/v1"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
@@ -121,7 +122,9 @@ func (r *Reconciler) resolveActiveStreamName() string {
 
 	err := r.apiReader.Get(r.Context, client.ObjectKey{Name: osImageStreamName}, obj)
 	if err != nil {
-		if apimachineryerrors.IsNotFound(err) {
+		// A no-match error means the OSStreams feature gate is disabled and the
+		// CRD is not installed, which is expected rather than a misconfiguration.
+		if apimachineryerrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 			klog.V(3).Infof("OSImageStream CR not found, defaulting to stream %q", defaultOSStreamName)
 		} else {
 			klog.Warningf("Failed to get OSImageStream CR: %v, defaulting to stream %q", err, defaultOSStreamName)
