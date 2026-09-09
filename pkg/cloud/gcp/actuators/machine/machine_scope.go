@@ -22,6 +22,7 @@ type machineScopeParams struct {
 	context.Context
 
 	coreClient           controllerclient.Client
+	apiReader            controllerclient.Reader
 	machine              *machinev1.Machine
 	computeClientBuilder computeservice.BuilderFuncType
 	tagsClientBuilder    tagservice.BuilderFuncType
@@ -33,6 +34,7 @@ type machineScope struct {
 	context.Context
 
 	coreClient     controllerclient.Client
+	apiReader      controllerclient.Reader
 	projectID      string
 	providerID     string
 	computeService computeservice.GCPComputeService
@@ -98,6 +100,7 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 	return &machineScope{
 		Context:    params.Context,
 		coreClient: params.coreClient,
+		apiReader:  params.apiReader,
 		projectID:  projectID,
 		// https://github.com/kubernetes/kubernetes/blob/8765fa2e48974e005ad16e65cb5c3acf5acff17b/staging/src/k8s.io/legacy-cloud-providers/gce/gce_util.go#L204
 		providerID:     fmt.Sprintf("gce://%s/%s/%s", projectID, providerSpec.Zone, params.machine.Name),

@@ -163,6 +163,7 @@ func main() {
 	// Initialize machine actuator.
 	machineActuator := machine.NewActuator(machine.ActuatorParams{
 		CoreClient:           mgr.GetClient(),
+		APIReader:            mgr.GetAPIReader(),
 		EventRecorder:        mgr.GetEventRecorderFor("gcpcontroller"),
 		ComputeClientBuilder: computeservice.NewComputeService,
 		TagsClientBuilder:    tagservice.NewTagService,
