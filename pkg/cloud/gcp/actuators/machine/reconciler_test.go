@@ -1132,10 +1132,14 @@ func TestDelete(t *testing.T) {
 }
 
 func TestFmtInstanceSelfLink(t *testing.T) {
+	_, mockComputeService := computeservice.NewComputeServiceMock()
+	r := newReconciler(&machineScope{
+		computeService: mockComputeService,
+	})
 	expected := "https://www.googleapis.com/compute/v1/projects/a/zones/b/instances/c"
-	res := fmtInstanceSelfLink("a", "b", "c")
+	res := r.fmtInstanceSelfLink("a", "b", "c")
 	if res != expected {
-		t.Errorf("Unexpected result from fmtInstanceSelfLink")
+		t.Errorf("Unexpected result from fmtInstanceSelfLink: got %q, want %q", res, expected)
 	}
 }
 

@@ -28,7 +28,6 @@ import (
 const (
 	userDataSecretKey         = "userData"
 	requeueAfterSeconds       = 20
-	instanceLinkFmt           = "https://www.googleapis.com/compute/v1/projects/%s/zones/%s/instances/%s"
 	kmsKeyNameFmt             = "projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s"
 	machineTypeFmt            = "zones/%s/machineTypes/%s"
 	acceleratorTypeFmt        = "zones/%s/acceleratorTypes/%s"
@@ -728,8 +727,20 @@ func isInvalidZone(err error) bool {
 	return false
 }
 
-func fmtInstanceSelfLink(project, zone, name string) string {
-	return fmt.Sprintf(instanceLinkFmt, project, zone, name)
+func (r *Reconciler) fmtInstanceSelfLink(project, zone, name string) string {
+	return googleapi.ResolveRelative(r.computeService.BasePath(), fmt.Sprintf("projects/%s/zones/%s/instances/%s", project, zone, name))
+}
+
+// resourcePath extracts the resource path from a GCP resource URL, stripping
+// the scheme, host, and API version prefix. GCP returns resource URLs using
+// www.googleapis.com while the Go SDK constructs them with
+// compute.googleapis.com; on sovereign clouds (GCD) the domain differs
+// entirely. Comparing paths instead of full URLs avoids false mismatches.
+func resourcePath(url string) string {
+	if i := strings.Index(url, "/projects/"); i >= 0 {
+		return url[i:]
+	}
+	return url
 }
 
 func (r *Reconciler) instanceExistsInPool(instanceLink string, pool string) (bool, error) {
@@ -740,7 +751,7 @@ func (r *Reconciler) instanceExistsInPool(instanceLink string, pool string) (boo
 	}
 
 	for _, link := range tp.Instances {
-		if instanceLink == link {
+		if resourcePath(instanceLink) == resourcePath(link) {
 			return true, nil
 		}
 	}
@@ -750,7 +761,7 @@ func (r *Reconciler) instanceExistsInPool(instanceLink string, pool string) (boo
 type poolProcessor func(instanceLink, pool string) error
 
 func (r *Reconciler) processTargetPools(desired bool, poolFunc poolProcessor) error {
-	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	instanceSelfLink := r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
 	// TargetPools may be empty/nil, and that's okay.
 	for _, pool := range r.providerSpec.TargetPools {
 		present, err := r.instanceExistsInPool(instanceSelfLink, pool)
@@ -843,7 +854,7 @@ func (r *Reconciler) checkRegistrationOfBackend() (bool, error) {
 	}
 
 	for _, backend := range backendService.Backends {
-		if backend.Group == r.FQDNInstanceGroup() {
+		if resourcePath(backend.Group) == resourcePath(r.FQDNInstanceGroup()) {
 			return true, nil
 		}
 	}
@@ -879,7 +890,7 @@ func (r *Reconciler) updateBackendServiceWithInstanceGroup() error {
 
 // registerInstanceToControlPlaneInstanceGroup ensures that the instance is assigned to the control plane instance group of its zone.
 func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
-	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	instanceSelfLink := r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
 	instanceGroupName := r.controlPlaneGroupName()
 
 	if err := r.ensureInstanceGroup(instanceGroupName); err != nil {
@@ -891,7 +902,7 @@ func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
 		return fmt.Errorf("failed to fetch running instances in instance group %s: %v", instanceGroupName, err)
 	}
 
-	if !instanceSets.Has(instanceSelfLink) && pointer.StringDeref(r.providerStatus.InstanceState, "") == "RUNNING" {
+	if !instanceSets.Has(resourcePath(instanceSelfLink)) && pointer.StringDeref(r.providerStatus.InstanceState, "") == "RUNNING" {
 		klog.V(4).Info("Registering instance in the instancegroup", "name", r.machine.Name, "instancegroup", instanceGroupName)
 		_, err := r.computeService.InstanceGroupsAddInstances(
 			r.projectID,
@@ -908,7 +919,7 @@ func (r *Reconciler) registerInstanceToControlPlaneInstanceGroup() error {
 
 // unregisterInstanceFromControlPlaneInstanceGroup ensures that the instance is removed from the control plane instance group.
 func (r *Reconciler) unregisterInstanceFromControlPlaneInstanceGroup() error {
-	instanceSelfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	instanceSelfLink := r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
 	instanceGroupName := r.controlPlaneGroupName()
 
 	instanceSets, err := r.fetchRunningInstancesInInstanceGroup(r.projectID, r.providerSpec.Zone, instanceGroupName)
@@ -916,7 +927,7 @@ func (r *Reconciler) unregisterInstanceFromControlPlaneInstanceGroup() error {
 		return fmt.Errorf("failed to fetch running instances in instance group %s: %v", instanceGroupName, err)
 	}
 
-	if len(instanceSets) > 0 && instanceSets.Has(instanceSelfLink) {
+	if len(instanceSets) > 0 && instanceSets.Has(resourcePath(instanceSelfLink)) {
 		klog.V(4).Info("Unregistering instance from the instancegroup", "name", r.machine.Name, "instancegroup", instanceGroupName)
 		_, err := r.computeService.InstanceGroupsRemoveInstances(
 			r.projectID,
@@ -944,7 +955,7 @@ func (r *Reconciler) fetchRunningInstancesInInstanceGroup(projectID string, zone
 
 	instanceSets := sets.NewString()
 	for _, i := range instanceList.Items {
-		instanceSets.Insert(i.Instance)
+		instanceSets.Insert(resourcePath(i.Instance))
 	}
 
 	return instanceSets, nil
@@ -953,7 +964,7 @@ func (r *Reconciler) fetchRunningInstancesInInstanceGroup(projectID string, zone
 // FQDNInstanceGroup generates a FQDN for our instance group.
 // It is neccessary for the addition of the instance group to the backend service.
 func (r *Reconciler) FQDNInstanceGroup() string {
-	return fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/%s/instanceGroups/%s", r.projectID, r.providerSpec.Zone, r.controlPlaneGroupName())
+	return googleapi.ResolveRelative(r.computeService.BasePath(), fmt.Sprintf("projects/%s/zones/%s/instanceGroups/%s", r.projectID, r.providerSpec.Zone, r.controlPlaneGroupName()))
 }
 
 // backendServiceName generates the name of a cluster's backend service

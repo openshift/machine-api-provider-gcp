@@ -2,6 +2,8 @@ package computeservice
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 
@@ -50,12 +52,26 @@ type BuilderFuncType func(serviceAccountJSON string) (GCPComputeService, error)
 func NewComputeService(serviceAccountJSON string) (GCPComputeService, error) {
 	ctx := context.TODO()
 
-	creds, err := google.CredentialsFromJSON(ctx, []byte(serviceAccountJSON), compute.CloudPlatformScope)
+	// Parse the credential type to allow restricting which credential types are
+	// accepted from external sources. In this case, there are no restrictions
+	// so we simply pass the type through.
+	var f struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(serviceAccountJSON), &f); err != nil {
+		return nil, fmt.Errorf("failed to parse credentials JSON: %w", err)
+	}
+
+	creds, err := google.CredentialsFromJSONWithType(ctx, []byte(serviceAccountJSON), google.CredentialsType(f.Type), compute.CloudPlatformScope)
 	if err != nil {
 		return nil, err
 	}
 
-	service, err := compute.NewService(ctx, option.WithCredentials(creds))
+	ud, err := creds.GetUniverseDomain()
+	if err != nil {
+		return nil, err
+	}
+	service, err := compute.NewService(ctx, option.WithAuthCredentialsJSON(option.CredentialsType(f.Type), []byte(serviceAccountJSON)), option.WithUniverseDomain(ud))
 	if err != nil {
 		return nil, err
 	}
