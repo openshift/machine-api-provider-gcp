@@ -1283,6 +1283,101 @@ func TestCreate(t *testing.T) {
 	}
 }
 
+func TestValidateMachineDiskLicenses(t *testing.T) {
+	validFullURI := "https://www.googleapis.com/compute/v1/projects/my-project/global/licenses/my-license"
+	validSelfLink := "projects/my-project/global/licenses/my-license"
+
+	testCases := []struct {
+		name          string
+		licenses      []string
+		expectedError string
+	}{
+		{
+			name:     "accepts a full Google Compute license URI",
+			licenses: []string{validFullURI},
+		},
+		{
+			name:     "accepts a short license self-link",
+			licenses: []string{validSelfLink},
+		},
+		{
+			name: "accepts nil licenses",
+		},
+		{
+			name:     "accepts empty licenses",
+			licenses: []string{},
+		},
+		{
+			name:          "rejects a malformed license URL",
+			licenses:      []string{"not-a-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects a license URL with the wrong host",
+			licenses:      []string{"https://example.com/compute/v1/projects/my-project/global/licenses/my-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects a license URL with the wrong scheme",
+			licenses:      []string{"http://www.googleapis.com/compute/v1/projects/my-project/global/licenses/my-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects an empty project path segment",
+			licenses:      []string{"projects//global/licenses/my-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects an empty license path segment",
+			licenses:      []string{"projects/my-project/global/licenses/"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects extra path components",
+			licenses:      []string{validSelfLink + "/extra"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects more than eight licenses",
+			licenses:      []string{validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink},
+			expectedError: "disk 0 has 9 licenses, maximum is 8",
+		},
+		{
+			name:          "rejects a license URI longer than 256 characters",
+			licenses:      []string{validSelfLink + strings.Repeat("a", 256)},
+			expectedError: "disk 0 license 0 exceeds the maximum length of 256 characters",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			machine := machinev1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{machinev1.MachineClusterIDLabel: "cluster-id"},
+				},
+			}
+			providerSpec := machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{{Licenses: tc.licenses}},
+			}
+
+			err := validateMachine(machine, providerSpec)
+			if tc.expectedError == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("expected error %q, got nil", tc.expectedError)
+			}
+			if err.Error() != tc.expectedError {
+				t.Errorf("expected error %q, got %q", tc.expectedError, err.Error())
+			}
+		})
+	}
+}
+
 func TestUpdateInstanceNotFound(t *testing.T) {
 	_, mockComputeService := computeservice.NewComputeServiceMock()
 	mockComputeService.MockInstancesGet = func(project string, zone string, instance string) (*compute.Instance, error) {

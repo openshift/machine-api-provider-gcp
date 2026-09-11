@@ -135,4 +135,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect
 )
 
-replace github.com/openshift/api => github.com/redhat-chai-bot/api v0.0.0-20260813080306-5e4780e5baca
+replace github.com/openshift/api => github.com/redhat-chai-bot/api v0.0.0-20260911142914-2a3ec37cb077
