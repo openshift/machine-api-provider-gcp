@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,6 +34,8 @@ const (
 	windowsScriptMetadataKey  = "sysprep-specialize-script-ps1"
 	openshiftMachineRoleLabel = "machine.openshift.io/cluster-api-machine-role"
 	masterMachineRole         = "master"
+	maxDiskLicenses           = 8
+	maxLicenseURLLength       = 256
 )
 
 // Reconciler are list of services required by machine actuator, easy to create a fake
@@ -48,6 +51,8 @@ func newReconciler(scope *machineScope) *Reconciler {
 }
 
 var (
+	gcpLicenseURLPattern = regexp.MustCompile(`^(https://www.googleapis.com/compute/v1/)?projects/[^/]+/global/licenses/[^/]+$`)
+
 	// the keys have been sourced from https://cloud.google.com/compute/docs/gpus/
 	// the values have been sourced from https://github.com/googleapis/google-api-go-client/blob/main/compute/v1/compute-gen.go
 	supportedGpuTypes = map[string]string{
@@ -343,6 +348,7 @@ func (r *Reconciler) create() error {
 			DiskSizeGb:          disk.SizeGB,
 			DiskType:            fmt.Sprintf("zones/%s/diskTypes/%s", zone, disk.Type),
 			Labels:              labels,
+			Licenses:            disk.Licenses,
 			ResourceManagerTags: userTags,
 		}
 		// Only set SourceImage if it's not empty (blank disk if empty)
@@ -681,6 +687,21 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 
 	if providerSpec.Preemptible && providerSpec.ProvisioningModel != nil && *providerSpec.ProvisioningModel == machinev1.GCPSpotInstance {
 		return machinecontroller.InvalidMachineConfiguration("preemptible cannot be used together with 'Spot' provisioning model")
+	}
+
+	for diskIndex, disk := range providerSpec.Disks {
+		if len(disk.Licenses) > maxDiskLicenses {
+			return machinecontroller.InvalidMachineConfiguration("disk %d has %d licenses, maximum is %d", diskIndex, len(disk.Licenses), maxDiskLicenses)
+		}
+
+		for licenseIndex, license := range disk.Licenses {
+			if len(license) > maxLicenseURLLength {
+				return machinecontroller.InvalidMachineConfiguration("disk %d license %d exceeds the maximum length of %d characters", diskIndex, licenseIndex, maxLicenseURLLength)
+			}
+			if !gcpLicenseURLPattern.MatchString(license) {
+				return machinecontroller.InvalidMachineConfiguration("disk %d license %d must be a Google Compute license URI or self-link", diskIndex, licenseIndex)
+			}
+		}
 	}
 
 	return nil

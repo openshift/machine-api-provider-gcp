@@ -628,6 +628,63 @@ func TestCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "Disk licenses are passed through to the GCP API call",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+						Licenses: []string{
+							"projects/my-project/global/licenses/my-license",
+							"projects/my-project/global/licenses/my-other-license",
+						},
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.Disks) != 1 {
+					t.Fatalf("expected one disk, got %d", len(instance.Disks))
+				}
+				licenses := instance.Disks[0].InitializeParams.Licenses
+				if len(licenses) != 2 {
+					t.Fatalf("expected 2 licenses, got %d", len(licenses))
+				}
+				expectedLicenses := []string{
+					"projects/my-project/global/licenses/my-license",
+					"projects/my-project/global/licenses/my-other-license",
+				}
+				for i, expected := range expectedLicenses {
+					if licenses[i] != expected {
+						t.Errorf("expected license[%d] %q, got %q", i, expected, licenses[i])
+					}
+				}
+			},
+		},
+		{
+			name: "Nil disk licenses preserves existing behavior",
+			providerSpec: &machinev1.GCPMachineProviderSpec{
+				ProjectID: "project",
+				Region:    "test-region",
+				Disks: []*machinev1.GCPDisk{
+					{
+						Boot:  true,
+						Image: "projects/fooproject/global/images/uefi-image",
+					},
+				},
+			},
+			validateInstance: func(t *testing.T, instance *compute.Instance) {
+				if len(instance.Disks) != 1 {
+					t.Fatalf("expected one disk, got %d", len(instance.Disks))
+				}
+				licenses := instance.Disks[0].InitializeParams.Licenses
+				if len(licenses) != 0 {
+					t.Errorf("expected no licenses when not specified, got %v", licenses)
+				}
+			},
+		},
+		{
 			name: "Windows machine puts powershell script in the proper metadata field",
 			labels: map[string]string{
 				"machine.openshift.io/os-id":    "Windows",
@@ -1221,6 +1278,101 @@ func TestCreate(t *testing.T) {
 
 			if tc.validateInstance != nil {
 				tc.validateInstance(t, receivedInstance)
+			}
+		})
+	}
+}
+
+func TestValidateMachineDiskLicenses(t *testing.T) {
+	validFullURI := "https://www.googleapis.com/compute/v1/projects/my-project/global/licenses/my-license"
+	validSelfLink := "projects/my-project/global/licenses/my-license"
+
+	testCases := []struct {
+		name          string
+		licenses      []string
+		expectedError string
+	}{
+		{
+			name:     "accepts a full Google Compute license URI",
+			licenses: []string{validFullURI},
+		},
+		{
+			name:     "accepts a short license self-link",
+			licenses: []string{validSelfLink},
+		},
+		{
+			name: "accepts nil licenses",
+		},
+		{
+			name:     "accepts empty licenses",
+			licenses: []string{},
+		},
+		{
+			name:          "rejects a malformed license URL",
+			licenses:      []string{"not-a-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects a license URL with the wrong host",
+			licenses:      []string{"https://example.com/compute/v1/projects/my-project/global/licenses/my-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects a license URL with the wrong scheme",
+			licenses:      []string{"http://www.googleapis.com/compute/v1/projects/my-project/global/licenses/my-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects an empty project path segment",
+			licenses:      []string{"projects//global/licenses/my-license"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects an empty license path segment",
+			licenses:      []string{"projects/my-project/global/licenses/"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects extra path components",
+			licenses:      []string{validSelfLink + "/extra"},
+			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+		},
+		{
+			name:          "rejects more than eight licenses",
+			licenses:      []string{validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink, validSelfLink},
+			expectedError: "disk 0 has 9 licenses, maximum is 8",
+		},
+		{
+			name:          "rejects a license URI longer than 256 characters",
+			licenses:      []string{validSelfLink + strings.Repeat("a", 256)},
+			expectedError: "disk 0 license 0 exceeds the maximum length of 256 characters",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			machine := machinev1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{machinev1.MachineClusterIDLabel: "cluster-id"},
+				},
+			}
+			providerSpec := machinev1.GCPMachineProviderSpec{
+				Disks: []*machinev1.GCPDisk{{Licenses: tc.licenses}},
+			}
+
+			err := validateMachine(machine, providerSpec)
+			if tc.expectedError == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("expected error %q, got nil", tc.expectedError)
+			}
+			if err.Error() != tc.expectedError {
+				t.Errorf("expected error %q, got %q", tc.expectedError, err.Error())
 			}
 		})
 	}
