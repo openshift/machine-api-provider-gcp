@@ -245,7 +245,7 @@ type GCPDisk struct {
 	// +optional
 	EncryptionKey *GCPEncryptionKeyReference `json:"encryptionKey,omitempty"`
 	// licenses is a list of URLs of license resources attached to this disk.
-	// License URLs must match either the full URL format
+	// License URLs must match exactly either the full HTTPS URI format
 	// (https://www.googleapis.com/compute/v1/projects/{project}/global/licenses/{license})
 	// or the short self-link format (projects/{project}/global/licenses/{license}).
 	// Each license URL must be at least 1 character and must not exceed 256 characters.
@@ -257,7 +257,7 @@ type GCPDisk struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=256
-	// +kubebuilder:validation:items:Pattern=`^https?://.+|projects/.+/global/licenses/.+$`
+	// +kubebuilder:validation:items:Pattern=`^(https://www.googleapis.com/compute/v1/)?projects/[^/]+/global/licenses/[^/]+$`
 	Licenses []string `json:"licenses,omitempty"`
 }
 
