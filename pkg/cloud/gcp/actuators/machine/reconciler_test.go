@@ -391,7 +391,7 @@ func TestCreate(t *testing.T) {
 			mockGPUCompatibleMachineTypesList: func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string) {
 				var compatibleMachineType = []string{}
 				var gpuInfo = map[string]computeservice.GpuInfo{
-					"a2-highgpu-4g": computeservice.GpuInfo{
+					"a2-highgpu-4g": {
 						Type:  "nvidia-a100-80gb",
 						Count: 1,
 					},
@@ -423,7 +423,7 @@ func TestCreate(t *testing.T) {
 			mockGPUCompatibleMachineTypesList: func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string) {
 				var compatibleMachineType = []string{}
 				var gpuInfo = map[string]computeservice.GpuInfo{
-					"a2-highgpu-4g": computeservice.GpuInfo{
+					"a2-highgpu-4g": {
 						Type:  "nvidia-a100-80gb",
 						Count: 1,
 					},
@@ -456,11 +456,11 @@ func TestCreate(t *testing.T) {
 			mockGPUCompatibleMachineTypesList: func(project string, zone string, ctx context.Context) (map[string]computeservice.GpuInfo, []string) {
 				var compatibleMachineType = []string{}
 				var gpuInfo = map[string]computeservice.GpuInfo{
-					"a2-highgpu-4g": computeservice.GpuInfo{
+					"a2-highgpu-4g": {
 						Type:  "nvidia-a100-80gb",
 						Count: 1,
 					},
-					"a3-megagpu-8g": computeservice.GpuInfo{
+					"a3-megagpu-8g": {
 						Type:  "nvidia-h100-mega-80gb",
 						Count: 1,
 					},

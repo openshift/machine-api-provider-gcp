@@ -10,8 +10,15 @@ import (
 
 const insertOperationAgeSkew = 2 * time.Minute
 
+func resourcePath(url string) string {
+	if i := strings.Index(url, "/projects/"); i >= 0 {
+		return url[i:]
+	}
+	return url
+}
+
 func (r *Reconciler) latestVisibleInsertOperation() (*compute.Operation, error) {
-	selfLink := r.fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
+	selfLink := fmtInstanceSelfLink(r.projectID, r.providerSpec.Zone, r.machine.Name)
 	expectedPath := resourcePath(selfLink)
 	// targetLink:"path" returns 0 rows. Equality works.
 	filter := insertOperationTargetLinkFilter(expectedPath, selfLink)
