@@ -34,6 +34,7 @@ type GCPComputeServiceMock struct {
 	MockRegionGet                     func(project string, region string) (*compute.Region, error)
 	MockZoneOperationsList            func(project string, zone string, filter string) (*compute.OperationList, error)
 	MockInstancesGet                  func(project string, zone string, instance string) (*compute.Instance, error)
+	MockImageGet                      func(project string, image string) (*compute.Image, error)
 }
 
 func (c *GCPComputeServiceMock) InstancesInsert(project string, zone string, instance *compute.Instance) (*compute.Operation, error) {
@@ -257,6 +258,10 @@ func (c *GCPComputeServiceMock) BackendServiceGet(project string, region string,
 }
 
 func (c *GCPComputeServiceMock) ImageGet(project string, image string) (*compute.Image, error) {
+	if c.MockImageGet != nil {
+		return c.MockImageGet(project, image)
+	}
+
 	if project == ErrImageNotFound {
 		return nil, errors.New("imageGet request failed")
 	}

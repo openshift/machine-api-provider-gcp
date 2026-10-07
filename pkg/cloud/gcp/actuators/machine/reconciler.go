@@ -33,6 +33,16 @@ const (
 	windowsScriptMetadataKey  = "sysprep-specialize-script-ps1"
 	openshiftMachineRoleLabel = "machine.openshift.io/cluster-api-machine-role"
 	masterMachineRole         = "master"
+
+	// Last-resort fallback images used when the coreos-bootimages ConfigMap is unavailable.
+	// Sourced from openshift/installer release-5.0 data/data/coreos/rhcos.json.
+	defaultGCPBootImageX86    = "projects/rhcos-cloud/global/images/rhcos-10-2-20260423-0-gcp-x86-64"
+	defaultGCPBootImageARM    = "projects/rhcos-cloud/global/images/rhcos-10-2-20260423-0-gcp-aarch64"
+	coreOSBootImagesNamespace = "openshift-machine-config-operator"
+	coreOSBootImagesName      = "coreos-bootimages"
+
+	defaultOSStreamName = "rhel-10"
+	osImageStreamName   = "cluster"
 )
 
 // Reconciler are list of services required by machine actuator, easy to create a fake
@@ -248,6 +258,20 @@ func (r *Reconciler) create() error {
 		instance.Scheduling.AutomaticRestart = automaticRestart
 	}
 
+	// Resolve empty boot disk images before the UEFI check, which needs a
+	// concrete image to query GCP's ImageGet API.
+	for _, disk := range r.providerSpec.Disks {
+		if disk.Boot && disk.Image == "" {
+			resolved, err := r.resolveBootImage()
+			if err != nil {
+				return fmt.Errorf("failed to resolve boot disk image: %w", err)
+			}
+			disk.Image = resolved
+			klog.Infof("Resolved boot disk image for machine %s: %s", r.machine.Name, resolved)
+			break
+		}
+	}
+
 	// This is mostly to smooth off a rough edge, and hopefully should not be a
 	// case that is hit often. If an existing machineset has a non UEFI
 	// compatible disk, the check in the machineset controller should explicitly
@@ -331,7 +355,7 @@ func (r *Reconciler) create() error {
 				srcImage = googleapi.ResolveRelative(r.computeService.BasePath(), fmt.Sprintf("projects/%s/global/images/%s", r.projectID, disk.Image))
 			}
 		} else if disk.Boot {
-			return machinecontroller.InvalidMachineConfiguration("boot disk must specify an image")
+			return fmt.Errorf("failed to resolve boot disk image for machine %s", r.machine.Name)
 		}
 
 		labels, err := util.GetLabelsList(r.coreClient, r.machine.Labels[machinev1.MachineClusterIDLabel], disk.Labels)

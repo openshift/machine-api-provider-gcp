@@ -30,6 +30,7 @@ const (
 // Actuator is responsible for performing machine reconciliation.
 type Actuator struct {
 	coreClient           controllerclient.Client
+	apiReader            controllerclient.Reader
 	eventRecorder        record.EventRecorder
 	computeClientBuilder computeservice.BuilderFuncType
 	tagsClientBuilder    tagservice.BuilderFuncType
@@ -39,6 +40,7 @@ type Actuator struct {
 // ActuatorParams holds parameter information for Actuator.
 type ActuatorParams struct {
 	CoreClient           controllerclient.Client
+	APIReader            controllerclient.Reader
 	EventRecorder        record.EventRecorder
 	ComputeClientBuilder computeservice.BuilderFuncType
 	TagsClientBuilder    tagservice.BuilderFuncType
@@ -49,6 +51,7 @@ type ActuatorParams struct {
 func NewActuator(params ActuatorParams) *Actuator {
 	return &Actuator{
 		coreClient:           params.CoreClient,
+		apiReader:            params.APIReader,
 		eventRecorder:        params.EventRecorder,
 		computeClientBuilder: params.ComputeClientBuilder,
 		tagsClientBuilder:    params.TagsClientBuilder,
@@ -72,6 +75,7 @@ func (a *Actuator) Create(ctx context.Context, machine *machinev1.Machine) error
 	scope, err := newMachineScope(machineScopeParams{
 		Context:              ctx,
 		coreClient:           a.coreClient,
+		apiReader:            a.apiReader,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,
@@ -96,6 +100,7 @@ func (a *Actuator) Exists(ctx context.Context, machine *machinev1.Machine) (bool
 	scope, err := newMachineScope(machineScopeParams{
 		Context:              ctx,
 		coreClient:           a.coreClient,
+		apiReader:            a.apiReader,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,
@@ -137,6 +142,7 @@ func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error
 	scope, err := newMachineScope(machineScopeParams{
 		Context:              ctx,
 		coreClient:           a.coreClient,
+		apiReader:            a.apiReader,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,
@@ -174,6 +180,7 @@ func (a *Actuator) Delete(ctx context.Context, machine *machinev1.Machine) error
 	scope, err := newMachineScope(machineScopeParams{
 		Context:              ctx,
 		coreClient:           a.coreClient,
+		apiReader:            a.apiReader,
 		machine:              machine,
 		computeClientBuilder: a.computeClientBuilder,
 		tagsClientBuilder:    a.tagsClientBuilder,

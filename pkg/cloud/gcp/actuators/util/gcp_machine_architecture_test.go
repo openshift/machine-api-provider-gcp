@@ -12,6 +12,13 @@ func TestCPUArchitecture(t *testing.T) {
 		want NormalizedArch
 	}{
 		{
+			name: "should return arm64 for a4x-* machine types",
+			args: args{
+				machineType: "a4x-megagpu-1g",
+			},
+			want: ArchitectureArm64,
+		},
+		{
 			name: "should return arm64 for t2a-* machine types",
 			args: args{
 				machineType: "t2a-standard-8",

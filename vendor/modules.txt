@@ -50,6 +50,10 @@ github.com/chai2010/gettext-go
 github.com/chai2010/gettext-go/mo
 github.com/chai2010/gettext-go/plural
 github.com/chai2010/gettext-go/po
+# github.com/coreos/stream-metadata-go v0.4.11
+## explicit; go 1.18
+github.com/coreos/stream-metadata-go/stream
+github.com/coreos/stream-metadata-go/stream/rhcos
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 ## explicit
 github.com/davecgh/go-spew/spew
