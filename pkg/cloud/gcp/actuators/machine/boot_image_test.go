@@ -297,6 +297,64 @@ func TestResolveBootImage(t *testing.T) {
 	}
 }
 
+func TestResolveBootImageIncompleteGCPMetadata(t *testing.T) {
+	for _, arch := range []util.NormalizedArch{util.ArchitectureAmd64, util.ArchitectureArm64} {
+		for _, key := range []string{"stream", "streams"} {
+			for _, tc := range []struct {
+				name    string
+				project string
+				image   string
+			}{
+				{name: "missing name", project: "rhcos-cloud"},
+				{name: "missing project", image: "test-image"},
+				{name: "missing project and name"},
+			} {
+				t.Run(fmt.Sprintf("%s/%s/%s", arch, key, tc.name), func(t *testing.T) {
+					cm := testBootImagesConfigMapLegacy()
+					streamData := fmt.Sprintf(`{"architectures":{%q:{"images":{"gcp":{"project":%q,"name":%q}}}}}`,
+						archToStreamArch(arch), tc.project, tc.image)
+					if key == "streams" {
+						streamsData, err := json.Marshal(map[string]json.RawMessage{defaultOSStreamName: json.RawMessage(streamData)})
+						if err != nil {
+							t.Fatal(err)
+						}
+						streamData = string(streamsData)
+					}
+					cm.Data = map[string]string{key: streamData}
+					s := runtime.NewScheme()
+					if err := scheme.AddToScheme(s); err != nil {
+						t.Fatal(err)
+					}
+					fakeClient := controllerfake.NewClientBuilder().WithScheme(s).WithObjects(cm).Build()
+					gcpArch := "X86_64"
+					expectedImage := defaultGCPBootImageX86
+					if arch == util.ArchitectureArm64 {
+						gcpArch = "ARM64"
+						expectedImage = defaultGCPBootImageARM
+					}
+					r := &Reconciler{machineScope: &machineScope{
+						Context:      context.Background(),
+						apiReader:    fakeClient,
+						providerSpec: &machinev1.GCPMachineProviderSpec{},
+						computeService: &computeservice.GCPComputeServiceMock{
+							MockMachineTypesGet: func(string, string, string) (*compute.MachineType, error) {
+								return &compute.MachineType{Architecture: gcpArch}, nil
+							},
+						},
+					}}
+					if image, err := r.resolveImageFromConfigMap(arch); err == nil || image != "" {
+						t.Fatalf("expected incomplete metadata to be rejected, got image %q and error %v", image, err)
+					}
+					image, err := r.resolveBootImage()
+					if err != nil || image != expectedImage {
+						t.Fatalf("expected fallback image %q, got %q and error %v", expectedImage, image, err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestArchToStreamArch(t *testing.T) {
 	cases := []struct {
 		input    util.NormalizedArch

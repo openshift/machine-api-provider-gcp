@@ -449,23 +449,58 @@ func TestReconcile(t *testing.T) {
 
 func TestReconcileDisks(t *testing.T) {
 	testCases := []struct {
-		name           string
-		disks          []*machinev1.GCPDisk
-		expectDisabled bool
+		name                 string
+		disks                []*machinev1.GCPDisk
+		shieldedConfig       machinev1.GCPShieldedInstanceConfig
+		expectDisabled       bool
+		expectedImageLookups int
+		expectErr            bool
 	}{
 		{
-			name: "boot disk without UEFI",
+			name: "boot disk with deferred image",
 			disks: []*machinev1.GCPDisk{
 				{Boot: true},
 			},
-			expectDisabled: true,
+		},
+		{
+			name: "boot disk with deferred image and explicit shielded config",
+			disks: []*machinev1.GCPDisk{
+				{Boot: true},
+			},
+			shieldedConfig: machinev1.GCPShieldedInstanceConfig{
+				SecureBoot: machinev1.SecureBootPolicyDisabled,
+			},
+		},
+		{
+			name: "boot disk without UEFI",
+			disks: []*machinev1.GCPDisk{
+				{Boot: true, Image: "non-uefi-image"},
+			},
+			expectDisabled:       true,
+			expectedImageLookups: 1,
 		},
 		{
 			name: "boot disk with UEFI",
 			disks: []*machinev1.GCPDisk{
 				{Boot: true, Image: "uefi-image"},
 			},
-			expectDisabled: false,
+			expectedImageLookups: 1,
+		},
+		{
+			name: "empty non-boot disk image does not defer boot image check",
+			disks: []*machinev1.GCPDisk{
+				{},
+				{Boot: true, Image: "non-uefi-image"},
+			},
+			expectDisabled:       true,
+			expectedImageLookups: 1,
+		},
+		{
+			name: "no boot disk remains invalid",
+			disks: []*machinev1.GCPDisk{
+				{},
+			},
+			expectErr: true,
 		},
 	}
 	for _, tc := range testCases {
@@ -473,9 +508,27 @@ func TestReconcileDisks(t *testing.T) {
 			g := NewWithT(tt)
 			machineSet, err := newTestMachineSet("default", "n1-standard-2", nil, make(map[string]string), tc.disks)
 			g.Expect(err).ToNot(HaveOccurred())
+			providerConfig, err := getproviderConfig(machineSet)
+			g.Expect(err).ToNot(HaveOccurred())
+			providerConfig.ShieldedInstanceConfig = tc.shieldedConfig
+			machineSet.Spec.Template.Spec.ProviderSpec, err = providerSpecFromMachine(providerConfig)
+			g.Expect(err).ToNot(HaveOccurred())
+			originalTemplate := machineSet.Spec.Template.DeepCopy()
 
 			_, service := computeservice.NewComputeServiceMock()
 			service.MockMachineTypesGet = mockMachineTypesFunc
+			imageLookups := 0
+			service.MockImageGet = func(_ string, image string) (*compute.Image, error) {
+				imageLookups++
+				if image == "" {
+					return nil, &googleapi.Error{Code: 403, Message: "Required 'compute.images.list' permission"}
+				}
+				img := &compute.Image{}
+				if image == "uefi-image" {
+					img.GuestOsFeatures = []*compute.GuestOsFeature{{Type: computeservice.UEFICompatible}}
+				}
+				return img, nil
+			}
 			r := &Reconciler{
 				recorder: record.NewFakeRecorder(1),
 				cache:    newMachineTypesCache(),
@@ -485,9 +538,17 @@ func TestReconcileDisks(t *testing.T) {
 			}
 
 			_, err = r.reconcile(machineSet)
+			g.Expect(imageLookups).To(Equal(tc.expectedImageLookups))
+			if tc.expectErr {
+				g.Expect(err).To(MatchError(ContainSubstring("no boot disk found")))
+				return
+			}
 			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(machineSet.Annotations).To(Equal(map[string]string{
+				cpuKey: "2", memoryKey: "7680", gpuKey: "0", labelsKey: "kubernetes.io/arch=amd64",
+			}))
 
-			providerConfig, err := getproviderConfig(machineSet)
+			providerConfig, err = getproviderConfig(machineSet)
 			g.Expect(err).NotTo(HaveOccurred())
 
 			if tc.expectDisabled {
@@ -497,7 +558,7 @@ func TestReconcileDisks(t *testing.T) {
 			}
 
 			if !tc.expectDisabled {
-				g.Expect(providerConfig.ShieldedInstanceConfig).To(BeEquivalentTo(machinev1.GCPShieldedInstanceConfig{}))
+				g.Expect(machineSet.Spec.Template).To(Equal(*originalTemplate))
 			}
 
 		})
