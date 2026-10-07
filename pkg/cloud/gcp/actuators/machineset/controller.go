@@ -176,6 +176,18 @@ func (r *Reconciler) reconcile(machineSet *machinev1.MachineSet) (ctrl.Result, e
 		fmt.Sprintf("kubernetes.io/arch=%s", util.CPUArchitecture(providerConfig.MachineType)),
 		machineSet.Annotations[labelsKey])
 
+	// An empty boot image defers image selection to the Machine controller, which
+	// resolves the image and checks UEFI compatibility when creating the instance.
+	for _, disk := range providerConfig.Disks {
+		if !disk.Boot {
+			continue
+		}
+		if disk.Image == "" {
+			return ctrl.Result{}, nil
+		}
+		break
+	}
+
 	// OCP 4.12 and under did not have the ShieldedInstanceConfig field. From OCP
 	// 4.13, we enable Shielded Instance Config by default. In some cases the
 	// boot disk is not UEFI compatible and instance creation will fail with the

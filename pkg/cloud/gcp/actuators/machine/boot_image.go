@@ -87,6 +87,9 @@ func (r *Reconciler) resolveImageFromConfigMap(arch util.NormalizedArch) (string
 	if archData.Images.Gcp == nil {
 		return "", fmt.Errorf("no GCP image entry for architecture %q in stream metadata", streamArch)
 	}
+	if archData.Images.Gcp.Project == "" || archData.Images.Gcp.Name == "" {
+		return "", fmt.Errorf("GCP image entry for architecture %q in stream metadata must specify both project and name", streamArch)
+	}
 
 	return gcpImageReference(archData.Images.Gcp.Project, archData.Images.Gcp.Name), nil
 }
