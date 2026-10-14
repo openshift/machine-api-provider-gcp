@@ -89,7 +89,7 @@ func main() {
 	)
 
 	// Sets up feature gates (version from build time, default 4 for unknown)
-	// Default should be changed to 5 once we branch for 5
+	// Default should be changed to 5 once we branch for 5.
 	majorVersion := version.Version.Major
 	if majorVersion == 0 {
 		majorVersion = 4
