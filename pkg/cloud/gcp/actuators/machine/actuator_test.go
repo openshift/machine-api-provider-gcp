@@ -317,6 +317,7 @@ func TestActuatorEvents(t *testing.T) {
 			gs.Expect(err).ToNot(HaveOccurred())
 			params := ActuatorParams{
 				CoreClient:           k8sClient,
+				APIReader:            k8sClient,
 				EventRecorder:        eventRecorder,
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
@@ -420,8 +421,10 @@ func TestActuatorExists(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to configure feature gates: %s", err.Error())
 			}
+			fakeClient := controllerfake.NewFakeClient(userDataSecret, credentialsSecret)
 			params := ActuatorParams{
-				CoreClient:           controllerfake.NewFakeClient(userDataSecret, credentialsSecret),
+				CoreClient:           fakeClient,
+				APIReader:            fakeClient,
 				ComputeClientBuilder: computeservice.MockBuilderFuncType,
 				TagsClientBuilder:    tagservice.NewMockTagServiceBuilder,
 				FeatureGates:         gate,
