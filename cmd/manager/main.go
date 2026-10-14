@@ -88,8 +88,8 @@ func main() {
 		"Maximum number of concurrent reconciles per controller instance.",
 	)
 
-	// Sets up feature gates (version from build time, default 4 for unknown)
-	// Default should be changed to 5 once we branch for 5
+	// Sets up feature gates (version from build time, default 4 for unknown).
+	// Default should be changed to 5 once we branch for 5.
 	majorVersion := version.Version.Major
 	if majorVersion == 0 {
 		majorVersion = 4
