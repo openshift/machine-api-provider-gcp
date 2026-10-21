@@ -901,11 +901,7 @@ func TestCreate(t *testing.T) {
 					},
 				},
 			},
-			validateInstance: func(t *testing.T, instance *compute.Instance) {
-				if instance.ConfidentialInstanceConfig.EnableConfidentialCompute != true {
-					t.Errorf("Expected EnableConfidentialCompute to be true, Got: %t", instance.ConfidentialInstanceConfig.EnableConfidentialCompute)
-				}
-			},
+			expectedError: errors.New("confidentialCompute value Enabled is not longer supported"),
 		},
 		{
 			name: "confidential compute AMDEncryptedVirtualization",
@@ -928,14 +924,7 @@ func TestCreate(t *testing.T) {
 					},
 				},
 			},
-			validateInstance: func(t *testing.T, instance *compute.Instance) {
-				if instance.ConfidentialInstanceConfig.EnableConfidentialCompute != true {
-					t.Errorf("Expected EnableConfidentialCompute to be true, Got: %t", instance.ConfidentialInstanceConfig.EnableConfidentialCompute)
-				}
-				if instance.ConfidentialInstanceConfig.ConfidentialInstanceType != "SEV" {
-					t.Errorf("Expected ConfidentialInstanceType to be SEV, Got: %s", instance.ConfidentialInstanceConfig.ConfidentialInstanceType)
-				}
-			},
+			expectedError: errors.New("confidentialCompute value AMDEncryptedVirtualization is not longer supported"),
 		},
 		{
 			name: "confidential compute AMDEncryptedVirtualizationNestedPaging",
