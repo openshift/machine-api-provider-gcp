@@ -1365,8 +1365,9 @@ func TestValidateMachineDiskLicenses(t *testing.T) {
 		expectedError string
 	}{
 		{
-			name:     "accepts a full Google Compute license URI",
-			licenses: []string{validFullURI},
+			name:          "rejects a full Google Compute license URI",
+			licenses:      []string{validFullURI},
+			expectedError: "disk 0 license 0 must be a relative GCP license reference",
 		},
 		{
 			name:     "accepts a short license self-link",
@@ -1376,38 +1377,39 @@ func TestValidateMachineDiskLicenses(t *testing.T) {
 			name: "accepts nil licenses",
 		},
 		{
-			name:     "accepts empty licenses",
-			licenses: []string{},
+			name:          "rejects explicitly empty licenses",
+			licenses:      []string{},
+			expectedError: "disk 0 must have at least 1 license when licenses are specified",
 		},
 		{
 			name:          "rejects a malformed license URL",
 			licenses:      []string{"not-a-license"},
-			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+			expectedError: "disk 0 license 0 must be a relative GCP license reference",
 		},
 		{
 			name:          "rejects a license URL with the wrong host",
 			licenses:      []string{"https://example.com/compute/v1/projects/my-project/global/licenses/my-license"},
-			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+			expectedError: "disk 0 license 0 must be a relative GCP license reference",
 		},
 		{
 			name:          "rejects a license URL with the wrong scheme",
 			licenses:      []string{"http://www.googleapis.com/compute/v1/projects/my-project/global/licenses/my-license"},
-			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+			expectedError: "disk 0 license 0 must be a relative GCP license reference",
 		},
 		{
 			name:          "rejects an empty project path segment",
 			licenses:      []string{"projects//global/licenses/my-license"},
-			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+			expectedError: "disk 0 license 0 must be a relative GCP license reference",
 		},
 		{
 			name:          "rejects an empty license path segment",
 			licenses:      []string{"projects/my-project/global/licenses/"},
-			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+			expectedError: "disk 0 license 0 must be a relative GCP license reference",
 		},
 		{
 			name:          "rejects extra path components",
 			licenses:      []string{validSelfLink + "/extra"},
-			expectedError: "disk 0 license 0 must be a Google Compute license URI or self-link",
+			expectedError: "disk 0 license 0 must be a relative GCP license reference",
 		},
 		{
 			name:          "rejects more than eight licenses",

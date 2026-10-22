@@ -61,7 +61,7 @@ func newReconciler(scope *machineScope) *Reconciler {
 }
 
 var (
-	gcpLicenseURLPattern = regexp.MustCompile(`^(https://www.googleapis.com/compute/v1/)?projects/[^/]+/global/licenses/[^/]+$`)
+	gcpLicenseURLPattern = regexp.MustCompile(`^projects/(?:(?:[-a-z0-9]{1,63}\.)*(?:[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?):)?(?:[0-9]{1,19}|(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?))/global/licenses/[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$`)
 
 	// the keys have been sourced from https://cloud.google.com/compute/docs/gpus/
 	// the values have been sourced from https://github.com/googleapis/google-api-go-client/blob/main/compute/v1/compute-gen.go
@@ -714,6 +714,9 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 	}
 
 	for diskIndex, disk := range providerSpec.Disks {
+		if disk.Licenses != nil && len(disk.Licenses) == 0 {
+			return machinecontroller.InvalidMachineConfiguration("disk %d must have at least 1 license when licenses are specified", diskIndex)
+		}
 		if len(disk.Licenses) > maxDiskLicenses {
 			return machinecontroller.InvalidMachineConfiguration("disk %d has %d licenses, maximum is %d", diskIndex, len(disk.Licenses), maxDiskLicenses)
 		}
@@ -723,7 +726,7 @@ func validateMachine(machine machinev1.Machine, providerSpec machinev1.GCPMachin
 				return machinecontroller.InvalidMachineConfiguration("disk %d license %d exceeds the maximum length of %d characters", diskIndex, licenseIndex, maxLicenseURLLength)
 			}
 			if !gcpLicenseURLPattern.MatchString(license) {
-				return machinecontroller.InvalidMachineConfiguration("disk %d license %d must be a Google Compute license URI or self-link", diskIndex, licenseIndex)
+				return machinecontroller.InvalidMachineConfiguration("disk %d license %d must be a relative GCP license reference", diskIndex, licenseIndex)
 			}
 		}
 	}
