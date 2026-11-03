@@ -133,3 +133,5 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
+
+replace github.com/openshift/api => github.com/redhat-chai-bot/api v0.0.0-20261022085424-a1b8709295ab
