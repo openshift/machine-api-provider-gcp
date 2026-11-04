@@ -316,9 +316,8 @@ func (r *Reconciler) create() error {
 	if r.providerSpec.ConfidentialCompute != "" && r.providerSpec.ConfidentialCompute != machinev1.ConfidentialComputePolicyDisabled {
 		instance.ConfidentialInstanceConfig = &compute.ConfidentialInstanceConfig{EnableConfidentialCompute: true}
 		switch r.providerSpec.ConfidentialCompute {
-		case machinev1.ConfidentialComputePolicyEnabled:
-		case machinev1.ConfidentialComputePolicySEV:
-			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV"
+		case machinev1.ConfidentialComputePolicyEnabled, machinev1.ConfidentialComputePolicySEV:
+			return machinecontroller.InvalidMachineConfiguration("confidentialCompute value %s is not longer supported", r.providerSpec.ConfidentialCompute)
 		case machinev1.ConfidentialComputePolicySEVSNP:
 			instance.ConfidentialInstanceConfig.ConfidentialInstanceType = "SEV_SNP"
 		case machinev1.ConfidentialComputePolicyTDX:
