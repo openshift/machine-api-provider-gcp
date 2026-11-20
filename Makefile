@@ -98,7 +98,7 @@ sec: # Run security static analysis
 	$(DOCKER_CMD) hack/gosec.sh ./...
 
 .PHONY: build
-build: ## build binaries
+build: build-test-extension ## Build production binaries and the payload test extension
 	$(DOCKER_CMD) go build $(GOGCFLAGS) -o "bin/machine-controller-manager" \
                -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/manager"
 	$(DOCKER_CMD) go build $(GOGCFLAGS) -o "bin/termination-handler" \
@@ -123,6 +123,10 @@ vendor-test-extension: ## Update dependencies of the isolated provider OTE modul
 	cd test/e2e && GOWORK=off GOFLAGS=-mod=mod go mod vendor
 	cd test/e2e && GOWORK=off GOFLAGS=-mod=mod go mod verify
 
+.PHONY: test-e2e-provider
+test-e2e-provider: build-test-extension ## Run provider-specific OTE tests against a cluster
+	bash hack/test-e2e-provider.sh
+
 .PHONY: test-e2e
-test-e2e: ## Run e2e tests
+test-e2e: ## Run shared actuator e2e tests
 	hack/e2e.sh

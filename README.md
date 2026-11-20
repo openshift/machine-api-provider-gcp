@@ -11,6 +11,7 @@ For troubleshooting Makefile permission issues see [hacking-guide](https://githu
 ## Development
 
 - [Bumping Kubernetes and Go](docs/development/bump-k8s-go.md)
+- [Provider-specific e2e tests and OTE runner](test/e2e/README.md)
 
 ## TargetPools
 Target pools exist in a *region*
