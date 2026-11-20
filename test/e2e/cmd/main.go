@@ -10,6 +10,8 @@ import (
 	"github.com/openshift-eng/openshift-tests-extension/pkg/extension/extensiontests"
 	"github.com/openshift-eng/openshift-tests-extension/pkg/ginkgo"
 	"github.com/spf13/cobra"
+
+	_ "github.com/openshift/machine-api-provider-gcp/test/e2e/tests"
 )
 
 func newExtension() (*extension.Extension, error) {

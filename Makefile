@@ -109,6 +109,14 @@ build-test-extension: ## Build the isolated, static provider OTE binary
 	# The compliance exemption applies only to the test binary, never production binaries.
 	$(DOCKER_CMD) sh -c 'cd test/e2e && GOWORK=off GO_COMPLIANCE_POLICY=exempt_all CGO_ENABLED=0 go build -trimpath -ldflags "$(TEST_EXTENSION_LD_FLAGS)" -o ../../bin/machine-api-provider-gcp-tests-ext ./cmd'
 
+.PHONY: update-test-extension
+update-test-extension: build-test-extension ## Update tracked OTE metadata
+	$(DOCKER_CMD) ./bin/machine-api-provider-gcp-tests-ext update
+
+.PHONY: verify-test-extension
+verify-test-extension: build-test-extension ## Verify OTE metadata without changing the working tree
+	$(DOCKER_CMD) bash hack/verify-test-extension.sh
+
 .PHONY: vendor-test-extension
 vendor-test-extension: ## Update dependencies of the isolated provider OTE module
 	cd test/e2e && GOWORK=off GOFLAGS=-mod=mod go mod tidy
