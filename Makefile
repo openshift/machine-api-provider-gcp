@@ -12,6 +12,14 @@ REPO_PATH   ?= github.com/openshift/machine-api-provider-gcp
 LD_FLAGS    ?= -X $(REPO_PATH)/pkg/version.Raw=$(VERSION) -extldflags -static
 BUILD_IMAGE ?= registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.26-openshift-5.1
 
+TEST_EXTENSION_VERSION_PKG = github.com/openshift-eng/openshift-tests-extension/pkg/version
+TEST_EXTENSION_COMMIT ?= $(shell git rev-parse HEAD)
+TEST_EXTENSION_BUILD_DATE ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+TEST_EXTENSION_TREE_STATE = $(shell if test -z "$$(git status --porcelain)"; then echo clean; else echo dirty; fi)
+TEST_EXTENSION_LD_FLAGS = -X $(TEST_EXTENSION_VERSION_PKG).CommitFromGit=$(TEST_EXTENSION_COMMIT) \
+                         -X $(TEST_EXTENSION_VERSION_PKG).BuildDate=$(TEST_EXTENSION_BUILD_DATE) \
+                         -X $(TEST_EXTENSION_VERSION_PKG).GitTreeState=$(TEST_EXTENSION_TREE_STATE)
+
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 ENVTEST = go run ${PROJECT_DIR}/vendor/sigs.k8s.io/controller-runtime/tools/setup-envtest
 
@@ -68,6 +76,7 @@ goimports: ## Go fmt your code
 .PHONY: vet
 vet: ## Apply go vet to all go files
 	$(DOCKER_CMD) hack/go-vet.sh ./...
+	$(DOCKER_CMD) sh -c 'cd test/e2e && GOWORK=off ../../hack/go-vet.sh ./...'
 
 .PHONY: crds-sync
 crds-sync: ## Sync crds in install with the ones in the vendored oc/api
@@ -94,6 +103,17 @@ build: ## build binaries
                -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/manager"
 	$(DOCKER_CMD) go build $(GOGCFLAGS) -o "bin/termination-handler" \
                -ldflags "$(LD_FLAGS)" "$(REPO_PATH)/cmd/termination-handler"
+
+.PHONY: build-test-extension
+build-test-extension: ## Build the isolated, static provider OTE binary
+	# The compliance exemption applies only to the test binary, never production binaries.
+	$(DOCKER_CMD) sh -c 'cd test/e2e && GOWORK=off GO_COMPLIANCE_POLICY=exempt_all CGO_ENABLED=0 go build -trimpath -ldflags "$(TEST_EXTENSION_LD_FLAGS)" -o ../../bin/machine-api-provider-gcp-tests-ext ./cmd'
+
+.PHONY: vendor-test-extension
+vendor-test-extension: ## Update dependencies of the isolated provider OTE module
+	cd test/e2e && GOWORK=off GOFLAGS=-mod=mod go mod tidy
+	cd test/e2e && GOWORK=off GOFLAGS=-mod=mod go mod vendor
+	cd test/e2e && GOWORK=off GOFLAGS=-mod=mod go mod verify
 
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests
