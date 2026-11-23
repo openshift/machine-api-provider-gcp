@@ -1,0 +1,46 @@
+[
+  {
+    "name": "[sig-cluster-lifecycle] Machine API GCP MachineSet should have all Shielded VM options disabled when using nonUefi image",
+    "labels": {
+      "disruptive": {},
+      "mapi": {},
+      "periodic": {}
+    },
+    "resources": {
+      "isolation": {}
+    },
+    "source": "openshift:payload:machine-api-provider-gcp",
+    "codeLocations": [
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:30",
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:38",
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:66",
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:83"
+    ],
+    "lifecycle": "blocking",
+    "environmentSelector": {
+      "include": "platform==\"gcp\""
+    }
+  },
+  {
+    "name": "[sig-cluster-lifecycle] Machine API GCP MachineSet should provision Spot instance with provisioningModel: Spot successfully",
+    "labels": {
+      "disruptive": {},
+      "mapi": {},
+      "periodic": {}
+    },
+    "resources": {
+      "isolation": {}
+    },
+    "source": "openshift:payload:machine-api-provider-gcp",
+    "codeLocations": [
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:30",
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:38",
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:66",
+      "github.com/openshift/machine-api-provider-gcp/test/e2e/tests/gcp.go:137"
+    ],
+    "lifecycle": "blocking",
+    "environmentSelector": {
+      "include": "platform==\"gcp\""
+    }
+  }
+]
